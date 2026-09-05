@@ -40,6 +40,8 @@ export interface Transport {
   onInputs: (bytes: Uint8Array, from: string) => void;
   onSnapshot: (bytes: Uint8Array, from: string) => void;
   leave(): void;
+  /** 선택: 시그널링 릴레이 상태 (열린 소켓 수, 전체 수) */
+  relayCounts?(): { open: number; total: number };
 }
 
 /** 피어가 없는 로컬 전송 (싱글플레이/테스트) */

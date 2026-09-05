@@ -57,6 +57,10 @@ export class TrysteroTransport implements Transport {
     this.room.onPeerLeave = (id) => { this.connected.delete(id); this.onPeerLeave(id); };
   }
   peers(): string[] { return [...this.connected]; }
+  relayCounts(): { open: number; total: number } {
+    const st = Object.values(this.relayStatus());
+    return { open: st.filter((s) => s === WebSocket.OPEN).length, total: st.length };
+  }
   /** 디버그: 릴레이 소켓 상태 */
   relayStatus(): Record<string, number> {
     const socks = (this.strategy === 'torrent' ? torrentSockets() : nostrSockets()) as Record<string, WebSocket>;

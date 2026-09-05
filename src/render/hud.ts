@@ -25,6 +25,8 @@ export class Hud {
   chatBox: HTMLDivElement;
   chatInput: HTMLInputElement;
   settingsEl: HTMLDivElement;
+  private connectEl: HTMLDivElement;
+  private lastConnectKey = '';
   private chat: { text: string; at: number }[] = [];
   private minimapFrame = 0;
   showBoard = false;
@@ -43,6 +45,17 @@ export class Hud {
       <canvas class="hud-minimap" width="224" height="96"></canvas>
       <div class="hud-chat"></div>
       <div class="hud-chatbox" hidden><input maxlength="120"></div>
+      <div class="hud-connect" hidden>
+        <div class="box">
+          <h2 class="c-title"></h2>
+          <div class="c-room-l"></div><div class="c-room" translate="no"></div>
+          <div class="c-phase"><span class="spinner"></span><span class="c-phase-t"></span></div>
+          <div class="c-hint"></div>
+          <div class="c-net" translate="no"></div>
+          <div class="c-share-l"></div>
+          <div class="c-share"><input class="c-link" readonly translate="no"><button class="c-copy"></button></div>
+        </div>
+      </div>
       <div class="hud-settings" hidden>
         <h3 class="set-title"></h3>
         <label><span class="set-vol-l"></span> <input type="range" class="set-vol" min="0" max="100"></label>
@@ -64,6 +77,15 @@ export class Hud {
     this.chatBox = this.root.querySelector('.hud-chatbox')!;
     this.chatInput = this.chatBox.querySelector('input')!;
     this.settingsEl = this.root.querySelector('.hud-settings')!;
+    this.connectEl = this.root.querySelector('.hud-connect')!;
+    this.connectEl.style.pointerEvents = 'auto';
+    const link = this.connectEl.querySelector<HTMLInputElement>('.c-link')!;
+    this.connectEl.querySelector<HTMLButtonElement>('.c-copy')!.addEventListener('click', () => {
+      const btn = this.connectEl.querySelector<HTMLButtonElement>('.c-copy')!;
+      const done = () => { btn.textContent = t('copied'); setTimeout(() => { btn.textContent = t('copy'); }, 1500); };
+      if (navigator.clipboard) navigator.clipboard.writeText(link.value).then(done, () => { link.select(); done(); });
+      else { link.select(); done(); }
+    });
     this.chatBox.style.pointerEvents = 'auto';
     this.settingsEl.style.pointerEvents = 'auto';
     this.relabel();
@@ -77,6 +99,11 @@ export class Hud {
     this.settingsEl.querySelector('.set-zoom-l')!.textContent = t('zoom');
     this.settingsEl.querySelector('.set-lang-l')!.textContent = t('language');
     this.settingsEl.querySelector('.set-close')!.textContent = t('closeHint');
+    this.connectEl.querySelector('.c-title')!.textContent = t('connTitle');
+    this.connectEl.querySelector('.c-room-l')!.textContent = t('connRoom');
+    this.connectEl.querySelector('.c-share-l')!.textContent = t('connShare');
+    this.connectEl.querySelector('.c-copy')!.textContent = t('copy');
+    this.lastConnectKey = '';
     const langs = this.settingsEl.querySelector<HTMLDivElement>('.set-langs')!;
     langs.innerHTML = langButtonsHtml();
     langs.querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.addEventListener('click', () => {
@@ -120,6 +147,35 @@ export class Hud {
   openChat(prefill = ''): void { this.chatBox.hidden = false; this.chatInput.value = prefill; this.chatInput.focus(); this.chatInput.setSelectionRange(prefill.length, prefill.length); this.renderChat(); }
   closeChat(): string { const v = this.chatInput.value; this.chatBox.hidden = true; this.chatInput.blur(); return v; }
   toggleSettings(): void { this.settingsEl.hidden = !this.settingsEl.hidden; }
+
+  /** 연결 화면: 플레이 전(탐색/참가/재동기화) 동안 방 코드·진행 상태·공유 링크를 보여준다 */
+  private updateConnect(st: SessionStatus, world: World | null): void {
+    const show = st.phase !== 'playing' || !world;
+    this.connectEl.hidden = !show;
+    if (!show) return;
+    const secs = Math.floor(st.elapsedMs / 1000);
+    const key = `${st.phase}|${st.peers}|${st.relays?.open}|${st.relays?.total}|${secs}|${st.room}|${st.offline}`;
+    if (key === this.lastConnectKey) return;
+    this.lastConnectKey = key;
+    const el = this.connectEl;
+    el.querySelector('.c-room')!.textContent = st.offline ? '—' : st.room;
+    const dots = '.'.repeat((secs % 3) + 1);
+    let phase = '', hint = '';
+    if (st.offline) phase = t('connOffline');
+    else if (st.phase === 'discover') { phase = t('connDiscover'); hint = t('connDiscoverHint', { s: 5 }); }
+    else if (st.phase === 'joining') { phase = t('connJoining'); hint = t('connJoiningHint'); }
+    else { phase = t('connResync'); hint = t('connJoiningHint'); }
+    el.querySelector('.c-phase-t')!.textContent = `${phase}${dots}`;
+    el.querySelector('.c-hint')!.textContent = hint;
+    const net = el.querySelector('.c-net')!;
+    if (st.relays && !st.offline) {
+      const r = st.relays;
+      net.innerHTML = `<span class="${r.open > 0 ? 'ok' : 'warn'}">● ${t('connRelays')} ${r.open}/${r.total}</span> · <span class="${st.peers > 0 ? 'ok' : ''}">● ${t('connPeers')} ${st.peers}</span> · ${secs}s`;
+    } else net.textContent = '';
+    const share = el.querySelector<HTMLDivElement>('.c-share')!;
+    share.hidden = st.offline; el.querySelector<HTMLDivElement>('.c-share-l')!.hidden = st.offline;
+    el.querySelector<HTMLInputElement>('.c-link')!.value = location.href;
+  }
 
   /** 미니맵: 타일 종류별 색 + 플레이어/깃발 점. 20프레임마다 갱신 */
   private drawMinimap(world: World, localPid: number): void {
@@ -173,6 +229,7 @@ export class Hud {
       this.lastStatusKey = statusKey;
       this.status.innerHTML = `<span>${t('phase_' + st.phase)}</span> · ${st.members} ${t('players')} · <span translate="no">pid ${st.pid}</span>${st.coordinator ? ` · ${t('coordinator')}` : ''}${st.stalledMs > 1000 ? ` · <b class="warn">${t('waiting')}</b>` : ''}${st.desyncs ? ` · ${st.desyncs} ${t('resyncs')}` : ''}<br><small>${escapeHtml(st.message)}</small>`;
     }
+    this.updateConnect(st, world);
     if (this.feed.length && performance.now() - this.feed[0].at > 6000) this.renderFeed();
     if (this.chat.length && performance.now() - this.chat[0].at > 12000) this.renderChat();
     if (!world) { this.top.innerHTML = ''; this.bottom.innerHTML = ''; this.center.innerHTML = ''; this.boardEl.hidden = true; return; }

@@ -40,6 +40,12 @@ export interface SessionStatus {
   stalledMs: number;
   desyncs: number;
   message: string;
+  /** 연결 화면용: 직접 연결된 피어 수, 릴레이 상태, 세션 시작 후 경과 ms, 방 코드 */
+  peers: number;
+  relays: { open: number; total: number } | null;
+  elapsedMs: number;
+  room: string;
+  offline: boolean;
 }
 
 interface Member extends MemberInfo {}
@@ -101,6 +107,8 @@ export class Session {
       members: this.activeMembers(this.world?.tick ?? 0).length,
       coordinator: this.isCoordinator(), stalledMs: this.stallSince ? now - this.stallSince : 0,
       desyncs: this.desyncs, message: this.message,
+      peers: this.transport.peers().length, relays: this.transport.relayCounts?.() ?? null,
+      elapsedMs: this.startedAt ? now - this.startedAt : 0, room: this.roomId, offline: this.transport.relayCounts === undefined,
     };
   }
 
