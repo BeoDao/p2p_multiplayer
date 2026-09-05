@@ -2,7 +2,7 @@
  * 가상 네트워크(지연 큐)로 여러 세션을 돌려 호스트 없는 락스텝이 일관성을 유지하는지 검증.
  */
 import { describe, it, expect } from 'vitest';
-import { Session } from '../src/net/session';
+import { Session, MAX_PLAYERS } from '../src/net/session';
 import type { Transport, ControlMsg } from '../src/net/transport';
 import { hashWorld } from '../src/sim/serialize';
 import { BTN_RIGHT, BTN_LEFT, BTN_JUMP, BTN_ACTION1, type Input } from '../src/sim/input';
@@ -55,6 +55,7 @@ class Hub {
 }
 
 class FakeTransport implements Transport {
+  relayCounts(): { open: number; total: number } { return { open: 1, total: 1 }; } // 온라인 취급 → 입력 선행(lead) 경로 검증
   connected = new Set<string>();
   onPeerJoin = (_: string): void => {};
   onPeerLeave = (_: string): void => {};
@@ -239,3 +240,24 @@ describe('hostless lockstep', () => {
 });
 
 export { hashWorld };
+
+describe('room capacity', () => {
+  it(`rejects the ${MAX_PLAYERS + 1}th player with a 'full' phase; others keep playing`, () => {
+    const hub = new Hub(60);
+    const sessions = new Map<string, Session>();
+    makePeer(hub, sessions, 'P0');
+    runFor(hub, sessions, 6000);
+    const ids = ['P0'];
+    for (let i = 1; i < MAX_PLAYERS; i++) { const id = 'P' + i; makePeer(hub, sessions, id); ids.push(id); runFor(hub, sessions, 1500); }
+    runFor(hub, sessions, 3000);
+    expectSynced(sessions, ids);
+    expect(sessions.get('P0')!.world!.players.length).toBe(MAX_PLAYERS);
+    makePeer(hub, sessions, 'EXTRA');
+    runFor(hub, sessions, 4000);
+    expect(sessions.get('EXTRA')!.phase).toBe('full');
+    expect(sessions.get('EXTRA')!.world).toBeNull();
+    runFor(hub, sessions, 2000);
+    expectSynced(sessions, ids);
+    expect(sessions.get('P0')!.world!.players.length).toBe(MAX_PLAYERS);
+  }, 60000);
+});

@@ -18,7 +18,7 @@ import { TICK_RATE } from '../sim/types';
 import type { Transport, ControlMsg, MemberInfo } from './transport';
 import { t as tr } from '../render/i18n';
 
-export const INPUT_DELAY = 2; // 틱 (67ms)
+export const INPUT_DELAY = 2; // 기본 입력 선행 틱 (67ms). 인원이 많으면 inputLead() 만큼 늘어난다
 const TICK_MS = 1000 / TICK_RATE;
 const MAX_AHEAD = 45; // 시뮬보다 앞서 보낼 수 있는 최대 입력 틱 수
 const HISTORY_TICKS = 900;
@@ -26,10 +26,13 @@ const HASH_INTERVAL = 60;
 const DISCOVER_MS = 5000;
 const LEAVE_QUERY_MS = 700;
 const STALL_KICK_MS = 4000;
+const JOIN_TIMEOUT_MS = 8000; // 참가 요청 후 이 시간 안에 승인이 없으면(코디네이터와 연결 실패 등) 재접속
 const STALL_REQ_MS = 800;
 const MAX_STEPS_PER_FRAME = 6;
 
-export type Phase = 'discover' | 'joining' | 'playing' | 'resync';
+export type Phase = 'discover' | 'joining' | 'playing' | 'resync' | 'full';
+/** 방 최대 인원. 호스트 없는 P2P 풀메시 락스텝의 현실적 상한(연결 수·최저 지연 피어 대기) — 더 키우려면 릴레이 서버 방식으로 전환 */
+export const MAX_PLAYERS = 18;
 
 export interface SessionStatus {
   phase: Phase;
@@ -46,6 +49,7 @@ export interface SessionStatus {
   elapsedMs: number;
   room: string;
   offline: boolean;
+  maxPlayers: number;
 }
 
 interface Member extends MemberInfo {}
@@ -78,6 +82,8 @@ export class Session {
   private pendingSnaps: { peerId: string; tick: number }[] = [];
   private waitingSnapAt = -1;
   private joinTarget: string | null = null;
+  private joinStartedAt = 0;
+  private reconnects = 0;
   private candidates = new Map<string, { pid: number; session: string; members: MemberInfo[] }>();
   private leaveQueries = new Map<number, { pid: number; deadline: number; replies: Map<string, { lastTick: number }> }>();
   private nextQid = 1;
@@ -108,7 +114,7 @@ export class Session {
       coordinator: this.isCoordinator(), stalledMs: this.stallSince ? now - this.stallSince : 0,
       desyncs: this.desyncs, message: this.message,
       peers: this.transport.peers().length, relays: this.transport.relayCounts?.() ?? null,
-      elapsedMs: this.startedAt ? now - this.startedAt : 0, room: this.roomId, offline: this.transport.relayCounts === undefined,
+      elapsedMs: this.startedAt ? now - this.startedAt : 0, room: this.roomId, offline: this.transport.relayCounts === undefined, maxPlayers: MAX_PLAYERS,
     };
   }
 
@@ -162,7 +168,9 @@ export class Session {
     this.pid = 0;
     this.session = '';
     this.phase = 'joining';
+    this.waitingSnapAt = -1;
     this.joinTarget = target;
+    this.joinStartedAt = this.lastNow;
     this.transport.sendControl({ t: 'joinreq', name: this.name }, target);
     this.message = tr('joinReq');
   }
@@ -262,6 +270,9 @@ export class Session {
         if (bytes.length > 10) this.transport.sendInputs(bytes, from);
         break;
       }
+      case 'full':
+        if (this.phase === 'joining' || this.phase === 'discover') { this.phase = 'full'; this.message = tr('roomFull', { n: m.max }); this.log('room full'); }
+        break;
       case 'bye':
         // 정상 종료 통지: WebRTC 끊김 감지를 기다리지 않고 즉시 이탈 절차
         this.onPeerLeave(from);
@@ -304,6 +315,14 @@ export class Session {
       const pid = this.peerToPid.get(peerId)!;
       const m = this.members.get(pid)!;
       this.transport.sendControl({ t: 'join', pid, peerId, name: m.name, team: -1, atTick: m.joinTick, session: this.session }, peerId);
+      return;
+    }
+    // 정원 초과: 활성 멤버(+참가 예정) 수가 MAX_PLAYERS 이상이면 거절
+    let active = 0;
+    for (const m of this.members.values()) if (m.leaveTick < 0) active++;
+    if (active >= MAX_PLAYERS) {
+      this.transport.sendControl({ t: 'full', max: MAX_PLAYERS }, peerId);
+      this.log(`reject ${name}: room full (${active}/${MAX_PLAYERS})`);
       return;
     }
     let pid = this.world.nextPlayerId;
@@ -439,15 +458,26 @@ export class Session {
   /** 이번 호출에서 발행한 입력 틱 수 (호출자가 1회성 입력을 래치 해제하는 데 사용) */
   emittedLast = 0;
 
+  /**
+   * 입력 선행 틱: 내 시뮬은 내가 보낸 입력보다 이만큼 뒤에서 돈다. 그 사이에 다른 피어의 입력이 도착할 여유가 생겨
+   * 인원이 많을수록 정지가 줄어든다 (2 + 6명당 1, 최대 6 = 200ms). 피어별 값이라 합의가 필요 없다. 오프라인은 0.
+   */
+  private inputLead(): number {
+    if (this.transport.relayCounts === undefined) return 0;
+    const n = this.activeMembers(this.world?.tick ?? 0).length;
+    return Math.min(6, INPUT_DELAY + Math.floor(n / 6));
+  }
+
   private emitInputs(now: number, local: Input): void {
     this.emittedLast = 0;
     if (this.pid === 0) return;
     const base = this.world ? this.world.tick : this.waitingSnapAt;
     this.tickAcc += now - this.lastNow;
     let emitted = 0;
+    const lead = this.inputLead();
     while (this.tickAcc >= TICK_MS && emitted < 4) {
       this.tickAcc -= TICK_MS;
-      if (this.localTick > base + INPUT_DELAY + MAX_AHEAD) { this.tickAcc = 0; break; }
+      if (this.localTick > base + lead + MAX_AHEAD) { this.tickAcc = 0; break; }
       let hist = this.inputs.get(this.pid);
       if (!hist) { hist = new Map(); this.inputs.set(this.pid, hist); }
       // 참가/재동기화 대기 중이면 빈 입력
@@ -543,6 +573,16 @@ export class Session {
   // ---------- 메인 갱신 ----------
   update(now: number, local: Input): void {
     // 탐색 단계: 기존 세션이 없으면 창립
+    if (this.phase === 'full') { this.lastNow = now; return; }
+    // 참가 대기 시간 초과: 코디네이터와 WebRTC 연결이 안 맺어진 경우가 대부분 → 방을 다시 들어가 연결을 새로 맺는다
+    if (this.phase === 'joining' && now - this.joinStartedAt > (this.waitingSnapAt < 0 ? JOIN_TIMEOUT_MS : JOIN_TIMEOUT_MS * 3) && this.reconnects < 5) {
+      this.reconnects++;
+      this.log(`join timeout (coordinator ${this.joinTarget && this.transport.peers().includes(this.joinTarget) ? 'connected' : 'not connected'}) → reconnect #${this.reconnects}`);
+      this.candidates.clear(); this.members.clear(); this.peerToPid.clear();
+      this.joinTarget = null; this.phase = 'discover'; this.startedAt = now; this.message = tr('reconnecting', { n: this.reconnects });
+      this.transport.reconnect?.();
+      this.lastNow = now; return;
+    }
     if (this.phase === 'discover') {
       if (this.candidates.size > 0) this.tryJoinCandidate();
       else if (now - this.startedAt > DISCOVER_MS) this.becomeFounder();
@@ -559,8 +599,10 @@ export class Session {
 
     // 시뮬레이션 진행
     let steps = 0;
+    const lead = this.inputLead();
     while (steps < MAX_STEPS_PER_FRAME) {
       const t = this.world.tick;
+      if (this.latestSent - t < lead) break; // 내 입력을 lead 틱만큼 앞서 보낸 뒤에야 시뮬을 진행 (남들이 받을 시간)
       const frame = this.buildFrame(t);
       if (!frame) break;
       this.flushPendingSnaps(t);

@@ -80,7 +80,7 @@ class InputState {
   latched = new Set<string>();
   slot = 0;
   clsRequest = 3;
-  cheatRequest = 0;
+  cheatRequest = 0; cheatA0 = 0; cheatA1 = 0;
   /** 채팅 입력 중이면 게임 키 무시 */
   blocked = false;
   constructor(canvas: HTMLCanvasElement) {
@@ -106,7 +106,7 @@ class InputState {
   key(...codes: string[]): boolean { return codes.some((c) => this.keys.has(c) || this.latched.has(c)); }
   mouse(b: number): boolean { return this.mouseDown.has(b) || this.latched.has('Mouse' + b); }
   /** 입력이 실제로 틱에 실렸을 때 호출 */
-  consumed(): void { this.latched.clear(); this.clsRequest = 3; this.cheatRequest = 0; }
+  consumed(): void { this.latched.clear(); this.clsRequest = 3; this.cheatRequest = 0; this.cheatA0 = 0; this.cheatA1 = 0; }
 }
 
 async function main(): Promise<void> {
@@ -159,7 +159,9 @@ async function main(): Promise<void> {
         const text = hud.closeChat().trim(); input.blocked = false;
         if (text.startsWith('/')) {
           // [DEV] 치트 콘솔 — 릴리즈 시 아래 한 줄을 주석 처리
-          const handled = CHEATS_ENABLED && runCheat(text, { log: (m) => hud.pushLog(m), request: (c) => { input.cheatRequest = c; } });
+          const w0 = session.world;
+          const ctx = w0 ? { spawnX: w0.spawnX, mapW: w0.map.w, team: w0.getPlayer(session.pid)?.team ?? 0, groundY: (tx: number) => { let ty = 0; while (ty < w0.map.h - 1 && !w0.map.isSolid(tx, ty)) ty++; return ty; } } : undefined;
+          const handled = CHEATS_ENABLED && runCheat(text, { log: (m) => hud.pushLog(m), request: (c, a0 = 0, a1 = 0) => { input.cheatRequest = c; input.cheatA0 = a0; input.cheatA1 = a1; } }, ctx);
           if (!handled) hud.pushLog(t('unknownCmd', { cmd: text }));
         } else if (text) session.sendChat(text);
         e.preventDefault();
@@ -204,7 +206,7 @@ async function main(): Promise<void> {
       const n = cls.hotbar.length;
       if (input.slot >= n) input.slot = n - 1;
     }
-    return { buttons, cx, cy, slot: input.slot, cls: input.clsRequest, cheat: input.cheatRequest };
+    return { buttons, cx, cy, slot: input.slot, cls: input.clsRequest, cheat: input.cheatRequest, a0: input.cheatA0, a1: input.cheatA1 };
   };
 
   // 세션(네트워크/시뮬)은 워커 타이머로 구동 → 탭이 숨겨져도 계속 동기화됨. 렌더링만 rAF.

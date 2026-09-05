@@ -17,7 +17,7 @@
     { "id": 13, "name": "spikes",     "solid": false, "hp": 6,  "texture": "spikes",     "yields": { "stone": 4 }, "buildable": true, "damage": 4 },
     { "id": 14, "name": "wood_back",  "solid": false, "hp": 4,  "texture": "wood_back",  "yields": { "wood": 1 }, "buildable": true, "layer": "back" },
     { "id": 15, "name": "stone_back", "solid": false, "hp": 8,  "texture": "stone_back", "yields": { "stone": 2 }, "buildable": true, "layer": "back" },
-    { "id": 16, "name": "dirt_back",  "solid": false, "hp": 3,  "texture": "dirt_back",  "yields": {}, "layer": "back" },
+    { "id": 16, "name": "dirt_back",  "solid": false, "hp": 0,  "texture": "dirt_back",  "yields": {}, "layer": "back" },
     { "id": 17, "name": "workshop",   "solid": false, "hp": 20, "texture": "workshop",   "yields": { "wood": 10 }, "buildable": true, "shop": true }
   ]
 }

@@ -44,6 +44,8 @@ export interface Player {
   animEvent: number; // 렌더러용 이벤트 카운터(공격 시작 등) — 상태의 일부이므로 결정론적
   digCheat: number; // [DEV] 1 이면 타일 즉사 (CHEATS_ENABLED)
   vehicle: number; // 타고 있는 탈것 id 또는 0
+  god: number; // [DEV] 1 이면 무적 (CHEATS_ENABLED)
+  jumpTicks: number; // 가변 점프: 점프키를 누르고 있는 동안 추가 상승이 가능한 남은 틱
   digMode: number; // 곡괭이 홀드 모드: 0 없음, 1 앞 타일, 2 뒷벽 (누른 순간 결정, 실수로 뒷벽까지 파지 않게)
 }
 

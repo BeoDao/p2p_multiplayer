@@ -154,7 +154,7 @@ export class Hud {
     this.connectEl.hidden = !show;
     if (!show) return;
     const secs = Math.floor(st.elapsedMs / 1000);
-    const key = `${st.phase}|${st.peers}|${st.relays?.open}|${st.relays?.total}|${secs}|${st.room}|${st.offline}`;
+    const key = `${st.phase}|${st.peers}|${st.relays?.open}|${st.relays?.total}|${secs}|${st.room}|${st.offline}|${st.message}`;
     if (key === this.lastConnectKey) return;
     this.lastConnectKey = key;
     const el = this.connectEl;
@@ -164,13 +164,15 @@ export class Hud {
     if (st.offline) phase = t('connOffline');
     else if (st.phase === 'discover') { phase = t('connDiscover'); hint = t('connDiscoverHint', { s: 5 }); }
     else if (st.phase === 'joining') { phase = t('connJoining'); hint = t('connJoiningHint'); }
+    else if (st.phase === 'full') { phase = t('roomFull', { n: st.maxPlayers }); hint = t('roomFullHint'); }
     else { phase = t('connResync'); hint = t('connJoiningHint'); }
-    el.querySelector('.c-phase-t')!.textContent = `${phase}${dots}`;
+    el.querySelector('.c-phase-t')!.textContent = st.phase === 'full' ? phase : `${phase}${dots}`;
+    el.querySelector<HTMLElement>('.spinner')!.style.visibility = st.phase === 'full' ? 'hidden' : 'visible';
     el.querySelector('.c-hint')!.textContent = hint;
     const net = el.querySelector('.c-net')!;
     if (st.relays && !st.offline) {
       const r = st.relays;
-      net.innerHTML = `<span class="${r.open > 0 ? 'ok' : 'warn'}">● ${t('connRelays')} ${r.open}/${r.total}</span> · <span class="${st.peers > 0 ? 'ok' : ''}">● ${t('connPeers')} ${st.peers}</span> · ${secs}s`;
+      net.innerHTML = `<span class="${r.open > 0 ? 'ok' : 'warn'}">● ${t('connRelays')} ${r.open}/${r.total}</span> · <span class="${st.peers > 0 ? 'ok' : ''}">● ${t('connPeers')} ${st.peers}</span> · ${secs}s${st.message ? `<br><span class="warn">${escapeHtml(st.message)}</span>` : ''}`;
     } else net.textContent = '';
     const share = el.querySelector<HTMLDivElement>('.c-share')!;
     share.hidden = st.offline; el.querySelector<HTMLDivElement>('.c-share-l')!.hidden = st.offline;
@@ -192,6 +194,7 @@ export class Hud {
       if (t === 0) {
         if (m.water[i] > 0) { r = 60; g = 130; b = 255; a = 220; }
         else if (m.backType[i] !== 0) { r = 60; g = 40; b = 25; a = 200; }
+        else { r = 110; g = 170; b = 235; a = 170; } // 하늘
       } else {
         const name = TILE_TABLE[t].name;
         a = 255;
@@ -227,7 +230,7 @@ export class Hud {
     const statusKey = `${st.phase}|${st.pid}|${st.members}|${st.coordinator}|${st.stalledMs > 1000}|${st.desyncs}|${st.message}`;
     if (statusKey !== this.lastStatusKey) {
       this.lastStatusKey = statusKey;
-      this.status.innerHTML = `<span>${t('phase_' + st.phase)}</span> · ${st.members} ${t('players')} · <span translate="no">pid ${st.pid}</span>${st.coordinator ? ` · ${t('coordinator')}` : ''}${st.stalledMs > 1000 ? ` · <b class="warn">${t('waiting')}</b>` : ''}${st.desyncs ? ` · ${st.desyncs} ${t('resyncs')}` : ''}<br><small>${escapeHtml(st.message)}</small>`;
+      this.status.innerHTML = `<span>${t('phase_' + st.phase)}</span> · ${st.members}/${st.maxPlayers} ${t('players')} · <span translate="no">pid ${st.pid}</span>${st.coordinator ? ` · ${t('coordinator')}` : ''}${st.stalledMs > 1000 ? ` · <b class="warn">${t('waiting')}</b>` : ''}${st.desyncs ? ` · ${st.desyncs} ${t('resyncs')}` : ''}<br><small>${escapeHtml(st.message)}</small>`;
     }
     this.updateConnect(st, world);
     if (this.feed.length && performance.now() - this.feed[0].at > 6000) this.renderFeed();

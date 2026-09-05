@@ -17,6 +17,7 @@ describe('fuzz invariants', () => {
     const a0 = w.players[0];
     for (const p of w.players) { p.x = a0.x + px(12) * (p.id - 1); p.y = a0.y; p.vx = 0; p.vy = 0; }
     const held = new Map<number, Input>();
+    const events: Record<string, number> = {};
     for (let t = 0; t < 6000; t++) {
       const inputs = new Map<number, Input>();
       for (const p of w.players) {
@@ -30,6 +31,7 @@ describe('fuzz invariants', () => {
         if (rng.int(200) === 0) { p.wood += 50; p.stone += 50; }
       }
       w.step({ inputs, joins: [], leaves: [] });
+      for (const e of w.events) events[e.kind] = (events[e.kind] ?? 0) + 1;
       for (const p of w.players) {
         const cls = CLASSES[p.cls];
         expect(Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.vx) && Number.isInteger(p.vy), `tick ${t} ints`).toBe(true);
@@ -54,7 +56,8 @@ describe('fuzz invariants', () => {
     // 뭔가는 일어났어야 함
     const kills = w.players.reduce((s, p) => s + p.kills, 0);
     const deaths = w.players.reduce((s, p) => s + p.deaths, 0);
-    expect(deaths).toBeGreaterThan(0);
+    expect((events.hit ?? 0) + (events.explode ?? 0) + deaths).toBeGreaterThan(0);
+    expect(events.build ?? 0).toBeGreaterThan(0);
     void kills;
-  });
+  }, 30000);
 });

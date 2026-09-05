@@ -24,9 +24,9 @@ export interface P2POptions {
 export class TrysteroTransport implements Transport {
   readonly selfId: string = selfId;
   private room: Room;
-  private ctl: { send: (d: DataPayload, o?: { target?: string | string[] }) => Promise<void> };
-  private inp: { send: (d: Uint8Array, o?: { target?: string | string[] }) => Promise<void> };
-  private snap: { send: (d: Uint8Array, o?: { target?: string | string[] }) => Promise<void> };
+  private ctl!: { send: (d: DataPayload, o?: { target?: string | string[] }) => Promise<void> };
+  private inp!: { send: (d: Uint8Array, o?: { target?: string | string[] }) => Promise<void> };
+  private snap!: { send: (d: Uint8Array, o?: { target?: string | string[] }) => Promise<void> };
   private connected = new Set<string>();
 
   onPeerJoin = (_: string): void => {};
@@ -35,8 +35,13 @@ export class TrysteroTransport implements Transport {
   onInputs = (_b: Uint8Array, _f: string): void => {};
   onSnapshot = (_b: Uint8Array, _f: string): void => {};
 
+  private roomId: string;
+  private config: Parameters<typeof joinNostr>[0];
+  private reconnecting = false;
+
   constructor(roomId: string, opts: P2POptions = {}) {
-    const config = {
+    this.roomId = roomId;
+    this.config = {
       appId: APP_ID,
       password: opts.password,
       rtcConfig: opts.rtcConfig,
@@ -44,18 +49,36 @@ export class TrysteroTransport implements Transport {
       relayConfig: opts.relayUrls && opts.relayUrls.length ? { urls: opts.relayUrls, redundancy: opts.relayUrls.length } : undefined,
     };
     this.strategy = opts.strategy === 'torrent' ? 'torrent' : 'nostr';
+    this.room = this.openRoom();
+  }
+
+  /** 연결 실패 복구: 방을 떠났다가 다시 들어간다. 연결돼 있던 피어들에겐 leave→join 으로 보인다 */
+  reconnect(): void {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    const old = this.room;
+    for (const id of [...this.connected]) { this.connected.delete(id); this.onPeerLeave(id); }
+    void old.leave().catch(() => {}).finally(() => {
+      setTimeout(() => { this.room = this.openRoom(); this.reconnecting = false; }, 500);
+    });
+  }
+
+  private openRoom(): Room {
     const join = this.strategy === 'torrent' ? joinTorrent : joinNostr;
-    this.room = join(config, roomId);
-    const ctl = this.room.makeAction<DataPayload>('ctl');
-    const inp = this.room.makeAction<Uint8Array>('inp');
-    const snap = this.room.makeAction<Uint8Array>('snap');
+    const room = join(this.config, this.roomId);
+    const ctl = room.makeAction<DataPayload>('ctl');
+    const inp = room.makeAction<Uint8Array>('inp');
+    const snap = room.makeAction<Uint8Array>('snap');
     this.ctl = ctl; this.inp = inp; this.snap = snap;
     ctl.onMessage = (d, c) => this.onControl(d as unknown as ControlMsg, c.peerId);
     inp.onMessage = (d, c) => this.onInputs(toU8(d), c.peerId);
     snap.onMessage = (d, c) => this.onSnapshot(toU8(d), c.peerId);
-    this.room.onPeerJoin = (id) => { this.connected.add(id); this.onPeerJoin(id); };
-    this.room.onPeerLeave = (id) => { this.connected.delete(id); this.onPeerLeave(id); };
+    room.onPeerJoin = (id) => { this.connected.add(id); this.onPeerJoin(id); };
+    room.onPeerLeave = (id) => { this.connected.delete(id); this.onPeerLeave(id); };
+    return room;
   }
+
+
   peers(): string[] { return [...this.connected]; }
   relayCounts(): { open: number; total: number } {
     const st = Object.values(this.relayStatus());

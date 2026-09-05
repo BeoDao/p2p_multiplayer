@@ -8,7 +8,7 @@ import { TILE_TABLE, T_AIR, T_BEDROCK, T_DIRT, T_GRASS, T_STONE, T_GOLD, T_TRUNK
 import { Rng } from './rng';
 
 export const NO_TEAM = 255;
-export const WATER_MAX = 8;
+export const WATER_MAX = 64; // 칸당 수위 해상도. 좌우 평준화가 1단위 차이에서 멈추므로 해상도가 높을수록 수면이 수평에 가깝다
 
 export class TileMap {
   readonly w: number;
@@ -47,41 +47,63 @@ export class TileMap {
    * 물 시뮬레이션 (셀룰러 오토마타, 정수). 아래로 흐르고 좌우로 평준화된다.
    * 고정된 순회 순서(아래→위, 왼→오)라 결정론적. 앞 타일이 있는 칸에는 물이 들어가지 않는다.
    */
-  stepWater(): void {
+  stepWater(tick = 0): void {
     const { w, h, water, type } = this;
     const tmp = this.waterTmp;
     tmp.set(water);
     for (let y = h - 2; y >= 0; y--) {
       const row = y * w;
+      // 1) 아래로 흐르기
       for (let x = 0; x < w; x++) {
         const i = row + x;
         let lv = tmp[i];
         if (lv === 0) continue;
-        if (type[i] !== T_AIR && !TILE_TABLE[type[i]].ladder) { tmp[i] = 0; continue; } // 고체/타일 안의 물은 사라짐
-        // 아래로
+        if (!this.passable(type[i])) { tmp[i] = 0; continue; } // 고체 타일 안의 물은 사라짐
         const bi = i + w;
         if (this.passable(type[bi])) {
           const room = WATER_MAX - tmp[bi];
           if (room > 0) { const f = lv < room ? lv : room; tmp[bi] += f; lv -= f; }
         }
-        if (lv === 0) { tmp[i] = 0; continue; }
-        // 좌우 평준화 (차이의 1/3 씩, 최소 1)
-        if (x > 0 && this.passable(type[i - 1])) {
-          const d = lv - tmp[i - 1];
-          if (d > 1) { const f = (d + 2) / 3 | 0; tmp[i - 1] += f; lv -= f; }
-        }
-        if (x < w - 1 && this.passable(type[i + 1])) {
-          const d = lv - tmp[i + 1];
-          if (d > 1) { const f = (d + 2) / 3 | 0; tmp[i + 1] += f; lv -= f; }
-        }
         tmp[i] = lv;
+      }
+      // 2) 수면 평준화: "받쳐진" 칸(아래가 고체이거나 물이 가득 찬 칸)의 연속 구간마다 물을 균등 분배 → 수면이 항상 수평.
+      //    받쳐지지 않은 칸(아래가 빈 공기)은 구간을 끊는다: 떨어지는 물은 옆으로 퍼지지 않는다.
+      let x = 0;
+      while (x < w) {
+        const i = row + x;
+        // 아래가 (균등 분배의 나머지 때문에) 1 모자라도 받쳐진 것으로 본다 — 아니면 63/64 상태에서 교착
+        const supported = this.passable(type[i]) && (!this.passable(type[i + w]) || tmp[i + w] >= WATER_MAX - 1);
+        if (!supported) { x++; continue; }
+        let x1 = x, sum = 0;
+        while (x1 < w) {
+          const j = row + x1;
+          if (!this.passable(type[j]) || (this.passable(type[j + w]) && tmp[j + w] < WATER_MAX - 1)) break;
+          sum += tmp[j]; x1++;
+        }
+        const n = x1 - x;
+        if (sum > 0 && n > 1) {
+          // 나머지는 시작 위치를 틱마다 돌려가며 분배 (항상 왼쪽에만 몰리면 아래 빈틈으로 못 떨어져 교착)
+          const base = (sum / n) | 0, rem = sum - base * n, off = tick % n;
+          for (let k = 0; k < n; k++) tmp[row + x + k] = base + (((k - off + n) % n) < rem ? 1 : 0);
+        }
+        // 구간 양끝: 옆이 받쳐지지 않은 빈 칸(절벽)이면 물이 넘쳐 흐른다 (다음 스텝에 떨어짐)
+        if (sum > 0) {
+          for (const [edge, nb] of [[row + x, row + x - 1], [row + x1 - 1, row + x1]] as [number, number][]) {
+            const nx = nb - row;
+            if (nx < 0 || nx >= w || !this.passable(type[nb])) continue;
+            const d = tmp[edge] - tmp[nb];
+            if (d >= 2) { const f = d >> 1; tmp[nb] += f; tmp[edge] -= f; }
+          }
+        }
+        x = x1;
       }
     }
     // 변경된 칸을 dirty 로 (렌더러는 물을 매 프레임 그리므로 표시용 아님) — 여기서는 버퍼 교체만
     water.set(tmp);
   }
+  /** 물이 지나갈 수 있는 칸: 공기, 사다리, 나무(배경처럼 취급 — 물길을 막지 않음) */
   private passable(t: number): boolean {
-    return t === T_AIR || !!TILE_TABLE[t].ladder;
+    return t === T_AIR || !!TILE_TABLE[t].ladder || !!TILE_TABLE[t].tree;
   }
 
   getBack(x: number, y: number): number {
@@ -330,6 +352,8 @@ export function generateMap(map: TileMap, rng: Rng): { spawnX: number[]; groundY
   }
   // 6. 기지 작업장 (스폰 왼쪽 4칸, 지면 위)
   const spawnL = 12;
+  // 6b. 스폰 아래 bedrock 슬래브: 기지 밑으로 터널을 파거나 폭탄으로 무너뜨릴 수 없다 (뒷벽은 그대로)
+  for (let x = 0; x < 24; x++) for (let y = groundY[x] + 1; y <= groundY[x] + 3; y++) map.set(x, y, T_BEDROCK);
   map.set(spawnL - 4, groundY[spawnL - 4] - 1, tileIdByName('workshop'));
   // 7. 오른쪽 절반 = 왼쪽 거울
   for (let x = half; x < w; x++) {

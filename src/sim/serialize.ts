@@ -65,8 +65,8 @@ function writePlayer(w: Writer, p: Player): void {
   w.i32(p.hp); w.u8(p.slot); w.i32(p.attackTimer); w.i32(p.attackWindup); w.i32(p.charge); w.bool(p.shield);
   w.i32(p.bombs); w.i32(p.arrows); w.i32(p.wood); w.i32(p.stone); w.i32(p.gold);
   w.i32(p.carryingFlag); w.i32(p.kills); w.i32(p.deaths);
-  w.u8(p.lastInput.buttons); w.i32(p.lastInput.cx); w.i32(p.lastInput.cy); w.u8(p.lastInput.slot); w.u8(p.lastInput.cls);
-  w.i32(p.hurtTimer); w.i32(p.animEvent); w.u8(p.digMode); w.u8(p.digCheat); w.i32(p.vehicle);
+  w.u8(p.lastInput.buttons); w.i32(p.lastInput.cx); w.i32(p.lastInput.cy); w.u8(p.lastInput.slot); w.u8(p.lastInput.cls); w.u8(p.lastInput.cheat ?? 0); w.i32(p.lastInput.a0 ?? 0); w.i32(p.lastInput.a1 ?? 0);
+  w.i32(p.hurtTimer); w.i32(p.animEvent); w.u8(p.digMode); w.u8(p.digCheat); w.i32(p.vehicle); w.u8(p.god); w.u8(p.jumpTicks);
 }
 function readPlayer(r: Reader): Player {
   return {
@@ -76,8 +76,8 @@ function readPlayer(r: Reader): Player {
     hp: r.i32(), slot: r.u8(), attackTimer: r.i32(), attackWindup: r.i32(), charge: r.i32(), shield: r.bool(),
     bombs: r.i32(), arrows: r.i32(), wood: r.i32(), stone: r.i32(), gold: r.i32(),
     carryingFlag: r.i32(), kills: r.i32(), deaths: r.i32(),
-    lastInput: { buttons: r.u8(), cx: r.i32(), cy: r.i32(), slot: r.u8(), cls: r.u8() },
-    hurtTimer: r.i32(), animEvent: r.i32(), digMode: r.u8(), digCheat: r.u8(), vehicle: r.i32(),
+    lastInput: { buttons: r.u8(), cx: r.i32(), cy: r.i32(), slot: r.u8(), cls: r.u8(), cheat: r.u8(), a0: r.i32(), a1: r.i32() },
+    hurtTimer: r.i32(), animEvent: r.i32(), digMode: r.u8(), digCheat: r.u8(), vehicle: r.i32(), god: r.u8(), jumpTicks: r.u8(),
   };
 }
 function writeProj(w: Writer, p: Projectile): void {
@@ -134,6 +134,7 @@ export function serializeWorld(world: World): Uint8Array {
   w.i32(world.vehicles.length);
   for (const v of world.vehicles) writeVehicle(w, v);
   w.i32(world.nextVehicleId); w.i32(world.vehicleRespawnAt[0]); w.i32(world.vehicleRespawnAt[1]);
+  w.i32(world.nextDummyId);
   return w.done();
 }
 
@@ -181,6 +182,7 @@ export function deserializeWorld(buf: Uint8Array): World {
   const nv = r.i32();
   for (let i = 0; i < nv; i++) world.vehicles.push(readVehicle(r));
   world.nextVehicleId = r.i32(); world.vehicleRespawnAt = [r.i32(), r.i32()];
+  world.nextDummyId = r.i32();
   world.events = [];
   return world;
 }

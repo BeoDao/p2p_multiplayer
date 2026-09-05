@@ -68,9 +68,13 @@ export function seatPos(v: Vehicle, p: Player): [number, number] {
 export function handleMount(world: World, p: Player, inp: Input): boolean {
   const use = (inp.buttons & BTN_USE) !== 0, usePrev = (p.lastInput.buttons & BTN_USE) !== 0;
   if (!use || usePrev) return false;
-  if (p.vehicle) { dismount(world, p, 0); return true; }
+  if (p.vehicle) { dismount(world, p, 0); return true; } // 자리가 없으면 그대로 탄 채
   const v = nearestMountable(world, p);
   if (!v) return false;
+  // 좌석 자리가 막혀 있으면(천장 등) 탈 수 없다
+  const [qx, qy] = seatPos(v, p);
+  const c = CLASSES[p.cls];
+  if (world.collidesAt(qx, qy, px(c.width), px(c.height), p.team)) return false;
   v.driver = p.id; p.vehicle = v.id;
   p.vx = 0; p.vy = 0; p.charge = 0; p.shield = false; p.attackWindup = 0;
   world.dropFlag(p); // 깃발은 들고 탈 수 없다
@@ -80,17 +84,27 @@ export function handleMount(world: World, p: Player, inp: Input): boolean {
   return true;
 }
 
-export function dismount(world: World, p: Player, kickVy: number): void {
+/** 내리기. 빈 자리(차체 위 → 좌/우)가 없으면 내리지 못한다 (force 면 차체 자리에 놓는다). 성공 시 true */
+export function dismount(world: World, p: Player, kickVy: number, force = false): boolean {
   const v = findVehicle(world, p.vehicle);
-  p.vehicle = 0;
-  if (!v) return;
-  if (v.driver === p.id) v.driver = 0;
+  if (!v) { p.vehicle = 0; return true; }
   const c = CLASSES[p.cls];
-  // 차체 위로 올려놓고 살짝 띄운다
-  p.x = v.x + (px(vehicleDef(v).width) >> 1) - (px(c.width) >> 1);
-  p.y = v.y - px(c.height);
+  const pw = px(c.width), ph = px(c.height);
+  const def = vehicleDef(v);
+  const vw = px(def.width), vh = px(def.height);
+  const cx = v.x + (vw >> 1) - (pw >> 1);
+  const candidates: [number, number][] = [
+    [cx, v.y - ph], [v.x - pw - 256, v.y + vh - ph], [v.x + vw + 256, v.y + vh - ph], [cx, v.y + vh - ph],
+  ];
+  let pos: [number, number] | undefined;
+  for (const [x, y] of candidates) if (!world.collidesAt(x, y, pw, ph, p.team)) { pos = [x, y]; break; }
+  if (!pos) { if (!force) return false; pos = [cx, v.y + vh - ph]; }
+  p.vehicle = 0;
+  if (v.driver === p.id) v.driver = 0;
+  p.x = pos[0]; p.y = pos[1];
   p.vx = idiv(v.vx, 2); p.vy = -400 + kickVy; p.onGround = false;
   world.events.push({ kind: 'mount', x: p.x, y: p.y, player: p.id });
+  return true;
 }
 
 /** 운전 중인 플레이어의 틱 처리 (물리/액션 대신) */
@@ -119,6 +133,12 @@ export function updateVehicles(world: World): void {
     const def = vehicleDef(v);
     const w = px(def.width), h = px(def.height);
     const driver = v.driver ? world.getPlayer(v.driver) : undefined;
+    // 충돌 상자 = 차체 + (운전자가 있으면) 좌석의 운전자 상자 — 운전자가 천장에 끼지 않게
+    const dc = driver ? CLASSES[driver.cls] : undefined;
+    const seatOx = dc ? (w >> 1) + px(def.seatX) * v.facing - (px(dc.width) >> 1) : 0;
+    const seatOy = dc ? (h >> 1) + px(def.seatY) - (px(dc.height) >> 1) : 0;
+    const blocked = (x: number, y: number): boolean =>
+      world.collidesAt(x, y, w, h, v.team) || (!!dc && world.collidesAt(x + seatOx, y + seatOy, px(dc.width), px(dc.height), v.team));
     // 운전자의 이번 틱 입력 (updatePlayer 가 lastInput 을 갱신한 뒤이므로 lastInput = 현재 틱 입력)
     const cur = driver?.lastInput;
     const left = cur ? (cur.buttons & BTN_LEFT) !== 0 : false;
@@ -147,9 +167,9 @@ export function updateVehicles(world: World): void {
       remX -= sx; remY -= sy;
       if (sx !== 0) {
         const nx = v.x + sx;
-        if (world.collidesAt(nx, v.y, w, h, v.team)) {
+        if (blocked(nx, v.y)) {
           // 접지 상태면 1칸 위로 올라가 본다 (계단)
-          if (wasGround && !world.collidesAt(nx, v.y - TILE_FP, w, h, v.team) && !world.collidesAt(v.x, v.y - TILE_FP, w, h, v.team)) {
+          if (wasGround && !blocked(nx, v.y - TILE_FP) && !blocked(v.x, v.y - TILE_FP)) {
             v.y -= TILE_FP; v.x = nx;
           } else {
             v.x = sx > 0 ? (toTile(nx + w - 1) << TILE_SHIFT) - w : (toTile(nx) + 1) << TILE_SHIFT;
@@ -160,18 +180,18 @@ export function updateVehicles(world: World): void {
       }
       if (sy !== 0) {
         const ny = v.y + sy;
-        if (world.collidesAt(v.x, ny, w, h, v.team)) {
+        if (blocked(v.x, ny)) {
           if (sy > 0) { v.y = (toTile(ny + h - 1) << TILE_SHIFT) - h; v.onGround = true; }
           else v.y = (toTile(ny) + 1) << TILE_SHIFT;
           v.vy = 0; remY = 0;
         } else v.y = ny;
       }
     }
-    if (!v.onGround && v.vy >= 0 && world.collidesAt(v.x, v.y + 1, w, h, v.team)) v.onGround = true;
+    if (!v.onGround && v.vy >= 0 && blocked(v.x, v.y + 1)) v.onGround = true;
     // 접지 상태에서 지면이 아래로 내려가면 (계단 내려감) 바로 붙인다 — 통통 튀지 않게
     if (wasGround && !v.onGround && v.vy >= 0) {
       for (let d = 1; d <= 8; d++) {
-        if (world.collidesAt(v.x, v.y + d * (TILE_FP >> 3) + 1, w, h, v.team)) { v.y += d * (TILE_FP >> 3); v.onGround = true; v.vy = 0; break; }
+        if (blocked(v.x, v.y + d * (TILE_FP >> 3) + 1)) { v.y += d * (TILE_FP >> 3); v.onGround = true; v.vy = 0; break; }
       }
     }
 
@@ -232,7 +252,7 @@ function destroyVehicle(world: World, v: Vehicle): void {
   world.events.push({ kind: 'explode', x: cx, y: cy });
   if (v.driver) {
     const p = world.getPlayer(v.driver);
-    if (p) { dismount(world, p, -600); world.hurt(p, 4, 0, 0, -600); }
+    if (p) { dismount(world, p, -600, true); world.hurt(p, 4, 0, 0, -600); }
   }
   world.vehicleRespawnAt[v.team] = world.tick + def.respawnTicks;
   // 잔해: 나무 드롭

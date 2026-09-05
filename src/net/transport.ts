@@ -15,6 +15,7 @@ export type ControlMsg =
   | { t: 'snapat'; tick: number }
   | { t: 'req'; pid: number; from: number; to: number }
   | { t: 'hash'; tick: number; hash: number }
+  | { t: 'full'; max: number }
   | { t: 'bye' }
   | { t: 'chat'; text: string };
 
@@ -42,6 +43,8 @@ export interface Transport {
   leave(): void;
   /** 선택: 시그널링 릴레이 상태 (열린 소켓 수, 전체 수) */
   relayCounts?(): { open: number; total: number };
+  /** 선택: 방을 나갔다가 다시 들어가 모든 피어 연결을 새로 맺는다 (연결 실패 복구) */
+  reconnect?(): void;
 }
 
 /** 피어가 없는 로컬 전송 (싱글플레이/테스트) */

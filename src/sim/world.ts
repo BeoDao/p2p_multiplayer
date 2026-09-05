@@ -37,7 +37,10 @@ const RESPAWN_TICKS = 120;
 const FLAG_RETURN_TICKS = 450;
 const WIN_SCORE = 3;
 const ROUND_RESET_TICKS = 240;
-const BOMB_THROW_SPEED = 1700;
+// 투척 게이지 (폭탄 등 모든 투척 무기 공통): 누른 틱 수에 비례해 속도 결정
+export const THROW_CHARGE_TICKS = 20;
+const THROW_MIN_SPEED = 500;
+const THROW_MAX_SPEED = 1900;
 const ARROW_LIFE = 240;
 const STUCK_ARROW_LIFE = 150;
 const HURT_TICKS = 8;
@@ -46,7 +49,8 @@ const BREATH_TICKS = 300; // 10초
 const WATER_STEP_INTERVAL = 2;
 const MAX_DROPS = 256; // 드롭 상한 (초과 시 가장 오래된 것 제거)
 const DROP_PICKUP_DELAY = 20; // 떨어뜨린 직후 되줍기 방지
-const MAX_STEP = 900; // 서브스텝 최대 이동 (< 반 타일)
+const MAX_STEP = 900;
+const JUMP_HOLD_TICKS = 8; // 가변 점프 추가 상승 틱 수 // 서브스텝 최대 이동 (< 반 타일)
 /** [DEV] 치트 처리 스위치. 치트는 ` 콘솔(dev/cheats.ts)에서만 발생하며 입력으로 전달되므로 모든 피어에서 동일하게 적용된다. 출시 전 false. */
 export const CHEATS_ENABLED = true;
 const COLLAPSE_SEARCH_LIMIT = 2500; // 이보다 큰 덩어리는 안정으로 간주
@@ -64,6 +68,7 @@ export class World {
   vehicles: Vehicle[] = [];
   nextVehicleId = 1;
   vehicleRespawnAt: number[] = [0, 0];
+  nextDummyId = 900; // [DEV] 더미 봇 pid
   score: Int32Array = new Int32Array(2);
   nextPlayerId = 1;
   nextProjId = 1;
@@ -131,7 +136,7 @@ export class World {
       x: 0, y: 0, vx: 0, vy: 0, onGround: false, onLadder: false, inWater: false, breath: BREATH_TICKS, facing: team === TEAM_BLUE ? 1 : -1,
       aimX: 0, aimY: 0, hp: 0, slot: 0, attackTimer: 0, attackWindup: 0, charge: 0, shield: false,
       bombs: 0, arrows: 0, wood: 0, stone: 0, gold: 0, carryingFlag: -1, kills: 0, deaths: 0,
-      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0, vehicle: 0,
+      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0, vehicle: 0, god: 0, jumpTicks: 0,
     };
     // 정렬 삽입
     let i = this.players.length;
@@ -196,7 +201,7 @@ export class World {
     this.updateFlags();
     this.updateDrops();
     // 5b. 물
-    if (this.tick % WATER_STEP_INTERVAL === 0) this.map.stepWater();
+    if (this.tick % WATER_STEP_INTERVAL === 0) this.map.stepWater(this.tick);
     // 6. 타일 물리: 예정된 붕괴 실행 → 이번 틱에 사라진 칸 주변의 지지 검사
     this.runCollapses();
     this.checkSupport();
@@ -327,15 +332,14 @@ export class World {
   private updatePlayer(p: Player, inp: Input): void {
     const cls = CLASSES[p.cls];
     if (p.state === PlayerState.Dead) {
+      if (CHEATS_ENABLED && inp.cheat && (inp.cheat !== p.lastInput.cheat || inp.a0 !== p.lastInput.a0 || inp.a1 !== p.lastInput.a1)) this.applyCheat(p, inp);
       // 죽어 있는 동안 직업 변경 요청 → 부활 시 적용
       if (inp.cls !== 3 && inp.cls < CLASSES.length) p.cls = inp.cls;
       if (this.tick >= p.respawnAt) this.spawn(p);
       return;
     }
     p.aimX = inp.cx; p.aimY = inp.cy;
-    if (CHEATS_ENABLED && inp.cheat === 2 && p.lastInput.cheat !== 2) { p.digCheat = p.digCheat ? 0 : 1; this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id }); }
-    if (CHEATS_ENABLED && inp.cheat === 3 && p.lastInput.cheat !== 3) { p.hp = cls.hp; this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id }); }
-    if (CHEATS_ENABLED && inp.cheat === 1 && p.lastInput.cheat !== 1) { p.wood = imin(p.wood + 1000, 9999); p.stone = imin(p.stone + 1000, 9999); p.gold = imin(p.gold + 1000, 9999); this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id }); }
+    if (CHEATS_ENABLED && inp.cheat && (inp.cheat !== p.lastInput.cheat || inp.a0 !== p.lastInput.a0 || inp.a1 !== p.lastInput.a1)) this.applyCheat(p, inp);
     // 탈것 타기/내리기 (E), 운전 중이면 탈것이 위치를 결정한다
     handleMount(this, p, inp);
     if (p.vehicle) { updateRider(this, p, inp); return; }
@@ -409,13 +413,22 @@ export class World {
       p.vy = imin(p.vy + idiv(GRAVITY, 4), 700);
       p.vy = idiv(p.vy * 15, 16);
       p.vx = idiv(p.vx * 14, 16);
-      if (wantJump) p.vy = imax(p.vy - 260, -900);
+      // 머리가 수면 위면 물 밖으로 완전히 점프할 수 있다 (지형 위로 올라오기); 잠겨 있으면 헤엄쳐 오르기만
+      const jumpEdge = wantJump && (p.lastInput.buttons & (BTN_JUMP | BTN_UP)) === 0;
+      if (wantJump && !headWater && (jumpEdge || p.vy >= -300)) { p.vy = cls.jumpSpeed; this.events.push({ kind: 'jump', x: p.x, y: p.y, player: p.id }); }
+      else if (wantJump) p.vy = imax(p.vy - 260, -900);
       if (down) p.vy = imin(p.vy + 200, 900);
     } else if (p.onLadder) {
       p.vy = up ? -LADDER_SPEED : down ? LADDER_SPEED : 0;
       if (jump && !up) { p.vy = cls.jumpSpeed; p.onLadder = false; this.events.push({ kind: 'jump', x: p.x, y: p.y, player: p.id }); }
     } else {
-      if (wantJump && p.onGround) { p.vy = cls.jumpSpeed; p.onGround = false; this.events.push({ kind: 'jump', x: p.x, y: p.y, player: p.id }); }
+      // 가변 점프: 짧게 누르면 낮게, 누르고 있으면 JUMP_HOLD_TICKS 동안 추가 상승 (KAG 식)
+      if (wantJump && p.onGround) {
+        p.vy = idiv(cls.jumpSpeed * 3, 4); p.onGround = false; p.jumpTicks = JUMP_HOLD_TICKS;
+        this.events.push({ kind: 'jump', x: p.x, y: p.y, player: p.id });
+      } else if (p.jumpTicks > 0) {
+        if (wantJump && p.vy < 0) { p.vy += idiv(cls.jumpSpeed, 14); p.jumpTicks--; } else p.jumpTicks = 0;
+      }
       p.vy = imin(p.vy + GRAVITY, MAX_FALL);
     }
 
@@ -436,6 +449,85 @@ export class World {
 
     // 낙사/맵 밖
     if (p.y > (this.map.h << TILE_SHIFT)) this.kill(p, 0);
+  }
+
+  /**
+   * [DEV] 치트 적용 (dev/cheats.ts 의 코드 표와 일치). 입력으로 전달되므로 모든 피어에서 같은 틱에 동일하게 실행된다.
+   * 출시 전: CHEATS_ENABLED=false 로 전부 차단.
+   */
+  private applyCheat(p: Player, inp: Input): void {
+    const cls = CLASSES[p.cls];
+    const a0 = inp.a0 ?? 0, a1 = inp.a1 ?? 0;
+    const fx = () => this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id });
+    const aimTile = (): [number, number] => [toTile(p.x + (px(cls.width) >> 1) + px(p.aimX)), toTile(p.y + (px(cls.height) >> 1) + px(p.aimY))];
+    switch (inp.cheat) {
+      case 1: p.wood = imin(p.wood + 1000, 9999); p.stone = imin(p.stone + 1000, 9999); p.gold = imin(p.gold + 1000, 9999); fx(); break;
+      case 2: p.digCheat = p.digCheat ? 0 : 1; fx(); break;
+      case 3: p.hp = cls.hp; fx(); break;
+      case 4: p.god = p.god ? 0 : 1; fx(); break;
+      case 5: { // tp x y (타일)
+        const tx = clamp(a0, 1, this.map.w - 2), ty = clamp(a1, 1, this.map.h - 2);
+        if (p.vehicle) dismount(this, p, 0, true);
+        p.x = (tx << TILE_SHIFT) + ((TILE_FP - px(cls.width)) >> 1); p.y = (ty << TILE_SHIFT) - px(cls.height); p.vx = 0; p.vy = 0; fx(); break;
+      }
+      case 6: { // 직업 변경 (어디서나)
+        if (a0 < 0 || a0 >= CLASSES.length) break;
+        this.dropFlag(p); p.cls = a0; const n = CLASSES[a0]; p.hp = n.hp; p.bombs = n.bombs ?? 0; p.arrows = n.bow?.arrows ?? 0; p.slot = 0; p.charge = 0; p.animEvent++; fx(); break;
+      }
+      case 7: p.bombs = clamp(p.bombs + (a0 || 10), 0, 99); p.arrows = clamp(p.arrows + (a0 || 30), 0, 999); fx(); break; // ammo
+      case 8: { // 탈것 생성 (플레이어 위치)
+        const v = spawnVehicle(this, p.team, clamp(a0, 0, 0));
+        v.x = p.x; v.y = p.y - px(8); fx(); break;
+      }
+      case 9: if (p.state === PlayerState.Alive) this.kill(p, 0); break; // 자살
+      case 10: { // 적 깃발을 손에
+        const f = this.flags[1 - p.team];
+        if (p.state !== PlayerState.Alive || p.vehicle) break;
+        if (f.carrier) { const c = this.getPlayer(f.carrier); if (c) c.carryingFlag = -1; }
+        f.carrier = p.id; f.atHome = false; p.carryingFlag = f.team; fx(); break;
+      }
+      case 11: { // 물: 조준 칸 주변 (a0 반경, 기본 2) 을 물로 채움
+        const [tx, ty] = aimTile(); const r = clamp(a0 || 2, 1, 8);
+        for (let y = ty - r; y <= ty + r; y++) for (let x = tx - r; x <= tx + r; x++) if (this.map.inBounds(x, y) && this.map.get(x, y) === T_AIR) this.map.water[y * this.map.w + x] = WATER_MAX;
+        break;
+      }
+      case 12: { // 타일 설치: a0 = 타일 id, a1 = 1 이면 뒷벽
+        const [tx, ty] = aimTile();
+        if (a0 <= 0 || a0 >= TILE_TABLE.length || !TILE_TABLE[a0]) break;
+        if (a1) this.map.setBack(tx, ty, a0); else this.map.set(tx, ty, a0, p.team);
+        break;
+      }
+      case 13: { // 주변 비우기: a0 반경 (기본 4) — bedrock 제외, 앞 타일만
+        const cx = toTile(p.x + (px(cls.width) >> 1)), cy = toTile(p.y + (px(cls.height) >> 1)); const r = clamp(a0 || 4, 1, 12);
+        for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) { const t = this.map.get(x, y); if (t !== T_AIR && TILE_TABLE[t].hp > 0) this.map.clearFront(x, y); }
+        break;
+      }
+      case 14: // 라운드 종료: 내 팀 승리
+        if (this.roundOverAt === 0) { this.score[p.team] = WIN_SCORE; this.roundOverAt = this.tick + ROUND_RESET_TICKS; }
+        break;
+      case 15: { // 더미 봇 생성 (조준 위치, a0 = 팀: 기본 적 팀, a1 = 직업)
+        const [tx, ty] = aimTile();
+        const team = a0 === 0 || a0 === 1 ? a0 : 1 - p.team;
+        const d = this.addPlayer(this.nextDummyId++, 'dummy', team);
+        d.cls = clamp(a1, 0, CLASSES.length - 1); d.state = PlayerState.Alive; d.hp = CLASSES[d.cls].hp;
+        d.x = (tx << TILE_SHIFT) + ((TILE_FP - px(CLASSES[d.cls].width)) >> 1); d.y = (ty << TILE_SHIFT) - px(CLASSES[d.cls].height); d.vx = 0; d.vy = 0;
+        break;
+      }
+      case 16: // 드롭 생성: a0 = 종류(0 나무 1 돌 2 금 3 폭탄 4 화살), a1 = 수량
+        this.spawnDrop(clamp(a0, 0, 4), clamp(a1 || 10, 1, 9999), p.x + (px(cls.width) >> 1) + px(p.aimX), p.y, 0, -600); break;
+      case 17: this.score[0] = clamp(a0, 0, 99); this.score[1] = clamp(a1, 0, 99); break; // 점수
+      case 18: if (p.state === PlayerState.Dead) p.respawnAt = this.tick; break; // 즉시 부활
+      case 19: { // 모든 더미 제거
+        for (let i = this.players.length - 1; i >= 0; i--) if (this.players[i].id >= 900) this.removePlayer(this.players[i].id);
+        break;
+      }
+      case 20: { // 시간 점프: a0 틱만큼 물/붕괴만 진행 (플레이어 없이) — 물 흐름 빨리 보기
+        const n = clamp(a0 || 300, 1, 3000);
+        for (let k = 0; k < n; k++) { if ((this.tick + k) % WATER_STEP_INTERVAL === 0) this.map.stepWater(this.tick + k); }
+        break;
+      }
+      default: break;
+    }
   }
 
   private onShop(p: Player, w: number, h: number): boolean {
@@ -566,16 +658,24 @@ export class World {
         break;
       }
       case 'bomb': {
-        if (a1 && !a1Prev && p.bombs > 0 && p.attackTimer === 0) {
-          p.bombs--;
-          p.attackTimer = 15;
-          const [vx, vy] = vnorm(inp.cx, inp.cy, BOMB_THROW_SPEED);
-          this.projectiles.push({
-            id: this.nextProjId++, kind: ProjKind.Bomb, owner: p.id, team: p.team,
-            x: cx, y: cy, vx: vx + idiv(p.vx, 2), vy: vy - 300, timer: cls.bombFuse ?? 90,
-            damage: cls.bombDamage ?? 10, stuck: false,
-          });
-          p.animEvent++;
+        // 투척: 좌클릭을 누르고 있는 시간(게이지)에 따라 던지는 속도 = 거리. 놓으면 발사.
+        if (a1 && p.bombs > 0 && p.attackTimer === 0) {
+          p.charge = imin(p.charge + 1, THROW_CHARGE_TICKS);
+        } else if (!a1 && p.charge > 0) {
+          const c = p.charge;
+          p.charge = 0;
+          if (p.bombs > 0) {
+            p.bombs--;
+            p.attackTimer = 15;
+            const speed = THROW_MIN_SPEED + idiv((THROW_MAX_SPEED - THROW_MIN_SPEED) * c, THROW_CHARGE_TICKS);
+            const [vx, vy] = vnorm(inp.cx || p.facing, inp.cy, speed);
+            this.projectiles.push({
+              id: this.nextProjId++, kind: ProjKind.Bomb, owner: p.id, team: p.team,
+              x: cx, y: cy, vx: vx + idiv(p.vx, 2), vy: vy - 200, timer: cls.bombFuse ?? 90,
+              damage: cls.bombDamage ?? 10, stuck: false,
+            });
+            p.animEvent++;
+          }
         }
         break;
       }
@@ -793,6 +893,7 @@ export class World {
   }
 
   hurt(q: Player, damage: number, byPid: number, kx: number, ky: number): void {
+    if (CHEATS_ENABLED && q.god) return;
     if (q.state !== PlayerState.Alive) return;
     q.hp -= damage;
     q.vx += kx; q.vy += ky;
@@ -809,7 +910,7 @@ export class World {
     q.hp = 0;
     const killer = byPid ? this.getPlayer(byPid) : undefined;
     if (killer && killer !== q) killer.kills++;
-    if (q.vehicle) dismount(this, q, 0);
+    if (q.vehicle) dismount(this, q, 0, true);
     this.dropFlag(q);
     this.dropResources(q);
     this.events.push({ kind: 'die', x: q.x, y: q.y, player: q.id, team: q.team, by: byPid });

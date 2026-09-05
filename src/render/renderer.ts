@@ -6,7 +6,8 @@
  */
 import { Application, Container, Sprite, Graphics, RenderTexture, Text, type Texture } from 'pixi.js';
 import { tileId } from '../data/defs';
-import { World } from '../sim/world';
+import { World, THROW_CHARGE_TICKS } from '../sim/world';
+import { WATER_MAX } from '../sim/tilemap';
 import { PlayerState, ProjKind, type Player, type Vehicle, type WorldEvent } from '../sim/types';
 import { VEHICLES, CLASSES, TILE_TABLE, hotbarItem, T_AIR } from '../data/defs';
 import { FP_ONE, TILE_PX } from '../sim/fixed';
@@ -250,15 +251,17 @@ export class Renderer {
     v.name.position.set(x + w / 2, y - 6);
     // HP 바 + 활 당김 게이지
     v.hp.clear();
-    const charging = p.charge > 0 && cls.bow;
-    v.hp.visible = v.hp.visible || !!charging;
+    const item0 = hotbarItem(cls, p.slot);
+    const chargeMax = item0?.id === 'bow' ? cls.bow?.chargeTicks ?? 1 : THROW_CHARGE_TICKS;
+    const charging = p.charge > 0;
+    v.hp.visible = v.hp.visible || charging;
     if (p.hp < cls.hp) {
       v.hp.rect(x + w / 2 - 5, y - 4, 10, 1.5).fill(0x000000);
       v.hp.rect(x + w / 2 - 5, y - 4, (10 * p.hp) / cls.hp, 1.5).fill(p.team === 0 ? 0x66aaff : 0xff6666);
     }
     if (charging) {
-      const f = p.charge / cls.bow!.chargeTicks;
-      const full = p.charge >= cls.bow!.chargeTicks;
+      const f = p.charge / chargeMax;
+      const full = p.charge >= chargeMax;
       v.hp.rect(x + w / 2 - 6, y - 7, 12, 2).fill(0x000000);
       v.hp.rect(x + w / 2 - 6, y - 7, 12 * f, 2).fill(full ? 0xffe066 : p.charge >= 4 ? 0xffffff : 0x888888);
     }
@@ -290,7 +293,7 @@ export class Renderer {
       else if (item?.id === 'pickaxe' || item?.kind === 'block') skel.playOverlay('dig');
     }
     // 조준 (활 / 폭탄): 앞팔이 커서를 향함
-    if (item?.id === 'bow' || (item?.id === 'bomb' && p.attackTimer > 0)) {
+    if (item?.id === 'bow' || (item?.id === 'bomb' && (p.attackTimer > 0 || p.charge > 0))) {
       let ang = Math.atan2(p.aimY, p.aimX);
       if (item.id === 'bow' && cls.bow) {
         // 팔은 시뮬의 발사 원점(활 손)을 향한다: 어깨 → (몸 중앙 + handY + 조준 방향*handReach). 활이 가슴 높이로 내려온다.
@@ -520,8 +523,8 @@ export class Renderer {
         const lv = map.water[y * map.w + x];
         if (lv === 0) continue;
         // 위 칸에도 물이 있으면 가득 찬 것으로 그려 이음새를 없앰
-        const full = lv >= 8 || map.water[(y - 1) * map.w + x] > 0;
-        const hgt = full ? TILE_PX : (TILE_PX * lv) / 8;
+        const full = lv >= WATER_MAX || map.water[(y - 1) * map.w + x] > 0;
+        const hgt = full ? TILE_PX : (TILE_PX * lv) / WATER_MAX;
         g.rect(x * TILE_PX, y * TILE_PX + TILE_PX - hgt, TILE_PX, hgt);
         any = true;
       }
