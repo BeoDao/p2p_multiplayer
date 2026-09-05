@@ -343,11 +343,36 @@ export function generateMap(map: TileMap, rng: Rng): { spawnX: number[]; groundY
       for (let dx = -2; dx <= 2; dx++) if (map.get(x + dx, y) !== T_AIR) { clear = false; break; }
     if (!clear) continue;
     for (let y = gy - 1; y >= top; y--) map.set(x, y, T_TRUNK);
-    for (let dy = -2; dy <= 1; dy++)
-      for (let dx = -2; dx <= 2; dx++) {
+    const leaf = (lx: number, ly: number) => { if (map.get(lx, ly) === T_AIR && lx < half) map.set(lx, ly, T_LEAF); };
+    // 캐노피 모양 3종: 둥근(5×4) / 넓은(7×3) / 뾰족한(5×5), 가장자리 잎은 확률로 빠져 울퉁불퉁하게
+    const shape = rng.int(3);
+    if (shape === 0) {
+      for (let dy = -2; dy <= 1; dy++) for (let dx = -2; dx <= 2; dx++) {
         if (Math.abs(dx) === 2 && Math.abs(dy) === 2) continue;
-        if (map.get(x + dx, top + dy) === T_AIR) map.set(x + dx, top + dy, T_LEAF);
+        if ((Math.abs(dx) === 2 || dy === -2) && rng.int(4) === 0) continue;
+        leaf(x + dx, top + dy);
       }
+    } else if (shape === 1) {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -3; dx <= 3; dx++) {
+        if (Math.abs(dx) === 3 && dy !== 0) continue;
+        if (Math.abs(dx) >= 2 && dy !== 0 && rng.int(3) === 0) continue;
+        leaf(x + dx, top + dy);
+      }
+    } else {
+      for (let dy = -3; dy <= 1; dy++) {
+        const half_w = dy === -3 ? 0 : dy === -2 ? 1 : 2;
+        for (let dx = -half_w; dx <= half_w; dx++) { if (Math.abs(dx) === half_w && half_w === 2 && rng.int(3) === 0) continue; leaf(x + dx, top + dy); }
+      }
+    }
+    // 가지: 키가 6 이상이면 한쪽으로 1칸 가지 + 작은 잎 뭉치 (기둥과 연결되어 붕괴 판정 공유)
+    if (th >= 6 && rng.int(2) === 0) {
+      const side = rng.int(2) === 0 ? -1 : 1;
+      const by = top + rng.range(2, th - 3);
+      if (map.get(x + side, by) === T_AIR && map.get(x + side * 2, by) === T_AIR) {
+        map.set(x + side, by, T_TRUNK);
+        leaf(x + side * 2, by); leaf(x + side * 2, by - 1); leaf(x + side, by - 1); leaf(x + side * 3, by - 1);
+      }
+    }
     lastTree = x;
   }
   // 6. 기지 작업장 (스폰 왼쪽 4칸, 지면 위)

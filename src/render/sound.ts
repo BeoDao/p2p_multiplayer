@@ -70,7 +70,7 @@ export class Sound {
       case 'explode': this.noise(0.5, 300, 60, gain * 0.9); this.tone(60, 0.4, 'sine', gain * 0.8, 20); break;
       case 'dig': this.noise(0.05, 2500, 1200, gain * 0.35); this.tone(200 + ((e.tile ?? 0) * 37) % 200, 0.04, 'square', gain * 0.15, 150); break;
       case 'build': this.tone(520, 0.05, 'square', gain * 0.3, 700); break;
-      case 'shoot': this.noise(0.08, 3000, 800, gain * 0.4); this.tone(700, 0.08, 'triangle', gain * 0.3, 300); break;
+      case 'shoot': if (e.tile === 1) { this.noise(0.05, 1800, 400, gain * 0.5); this.tone(160, 0.05, 'square', gain * 0.25, 60); } else { this.noise(0.08, 3000, 800, gain * 0.4); this.tone(700, 0.08, 'triangle', gain * 0.3, 300); } break;
       case 'capture': this.arp([523, 659, 784, 1047], 0.09, gain * 0.5); break;
       case 'pickup': this.arp([440, 660], 0.08, gain * 0.4); break;
       case 'buy': this.arp([880, 1320], 0.06, gain * 0.4); break;

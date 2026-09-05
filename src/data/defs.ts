@@ -43,6 +43,13 @@ export interface ClassDef {
   hotbar: string[];
   attack?: { damage: number; cooldown: number; windup: number; range: number; knockback: number };
   shield?: boolean;
+  shieldPush?: number; // 돌파: 방패로 밀칠 때 넉백 (FP)
+  gun?: {
+    rof: number; speed: number; damage: number; gravity: number; life: number;
+    spreadMin: number; spreadMax: number; spreadPerShot: number; spreadDecay: number; crouchDiv: number;
+    magazine: number; reloadTicks: number; ammo: number; ammoMax: number; tileDamage: number;
+    handY?: number; handReach?: number;
+  };
   bombs?: number;
   bombFuse?: number;
   bombRadius?: number;
@@ -55,7 +62,7 @@ export interface ClassDef {
     handY?: number; handReach?: number;
   };
   dig?: { damage: number; cooldown: number; reach: number };
-  shop?: { buy: 'bombs' | 'arrows'; amount: number; max: number; cost: Partial<Record<ResourceKind, number>> };
+  shop?: { buy: 'bombs' | 'arrows' | 'ammo'; amount: number; max: number; cost: Partial<Record<ResourceKind, number>> };
   build?: { reach: number; cooldown: number };
 }
 

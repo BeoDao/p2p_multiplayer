@@ -51,4 +51,33 @@ export class TextureRegistry {
     const v = this.tiles.get(name);
     return v ? v[variant % v.length] : undefined;
   }
+
+  private outlineCache = new Map<string, number>();
+  /** 타일 아웃라인 색: 텍스처 평균색을 어둡게 (×0.45). PNG 로 교체해도 자동으로 맞는다 */
+  tileOutline(name: string): number {
+    let c = this.outlineCache.get(name);
+    if (c !== undefined) return c;
+    c = darkenedAverage(this.tile(name, 0)) ?? 0x1a1208;
+    this.outlineCache.set(name, c);
+    return c;
+  }
+}
+
+function darkenedAverage(tex: Texture | undefined, k = 0.45): number | undefined {
+  if (!tex) return undefined;
+  try {
+    const res = tex.source.resource as CanvasImageSource | undefined;
+    if (!res) return undefined;
+    const c = document.createElement('canvas');
+    const w = tex.frame.width | 0, h = tex.frame.height | 0;
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(res, tex.frame.x, tex.frame.y, w, h, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4) { if (d[i + 3] < 128) continue; r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+    if (!n) return undefined;
+    const f = (v: number) => Math.max(0, Math.min(255, Math.round((v / n) * k)));
+    return (f(r) << 16) | (f(g) << 8) | f(b);
+  } catch { return undefined; }
 }

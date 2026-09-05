@@ -13,6 +13,7 @@
 import { World, type TickFrame, type JoinEvent } from '../sim/world';
 import { serializeWorld, deserializeWorld, hashWorld } from '../sim/serialize';
 import { EMPTY_INPUT, INPUT_BYTES, encodeInput, decodeInput, inputEquals, type Input } from '../sim/input';
+import { ReplayRecorder } from './replay';
 import { hashString } from '../sim/rng';
 import { TICK_RATE } from '../sim/types';
 import type { Transport, ControlMsg, MemberInfo } from './transport';
@@ -83,6 +84,10 @@ export class Session {
   private waitingSnapAt = -1;
   private joinTarget: string | null = null;
   private joinStartedAt = 0;
+  /** 리플레이 기록기 (항상 켜짐: 입력만 저장하므로 가볍다). exportReplay() 로 파일 바이트를 얻는다 */
+  readonly recorder = new ReplayRecorder();
+  /** 디싱크 감지 시 호출 (개발용 자동 저장) */
+  onDesync: ((bytes: Uint8Array) => void) | null = null;
   private reconnects = 0;
   private candidates = new Map<string, { pid: number; session: string; members: MemberInfo[] }>();
   private leaveQueries = new Map<number, { pid: number; deadline: number; replies: Map<string, { lastTick: number }> }>();
@@ -105,6 +110,8 @@ export class Session {
     transport.onInputs = (b, f) => this.onInputs(b, f);
     transport.onSnapshot = (b, f) => this.onSnapshot(b, f);
   }
+
+  exportReplay(): Uint8Array { return this.recorder.export(); }
 
   // ---------- 상태 조회 ----------
   status(now: number): SessionStatus {
@@ -150,6 +157,7 @@ export class Session {
     this.session = this.transport.selfId;
     this.pid = 1;
     this.world = new World(hashString(this.roomId + '|' + this.session) | 0);
+    this.recorder.start(this.world, this.roomId);
     this.members.clear();
     this.members.set(1, { pid: 1, peerId: this.transport.selfId, name: this.name, joinTick: 0, leaveTick: -1 });
     this.peerToPid.set(this.transport.selfId, 1);
@@ -526,6 +534,7 @@ export class Session {
     this.waitingSnapAt = -1;
     this.stallSince = 0;
     this.message = tr('synced', { tick });
+    this.recorder.start(this.world, this.roomId);
     this.log(`snapshot installed at tick ${tick}, ${this.world.players.length} players`);
   }
 
@@ -565,6 +574,7 @@ export class Session {
     const ch = map.get(coord);
     if (mine !== undefined && ch !== undefined && mine !== ch && coord !== this.pid) {
       this.log(`hash mismatch at tick ${tick}: mine=${mine} coord=${ch}`);
+      if (this.onDesync) { try { this.onDesync(this.recorder.export()); } catch { /* ignore */ } }
       this.requestResync();
     }
     for (const t of [...this.hashes.keys()]) if (t < tick - HASH_INTERVAL * 5) this.hashes.delete(t);
@@ -606,10 +616,12 @@ export class Session {
       const frame = this.buildFrame(t);
       if (!frame) break;
       this.flushPendingSnaps(t);
+      this.recorder.record(this.world, frame);
       this.world.step(frame);
       steps++;
       if (this.world.tick % HASH_INTERVAL === 0) {
         const h = hashWorld(this.world);
+        this.recorder.recordHash(this.world.tick, h);
         let map = this.hashes.get(this.world.tick);
         if (!map) { map = new Map(); this.hashes.set(this.world.tick, map); }
         map.set(this.pid, h);

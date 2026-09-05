@@ -2,7 +2,9 @@
  * 엔트리: 메뉴 → 세션 생성(P2P 또는 오프라인) → 게임 루프(입력 수집, 세션 갱신, 렌더).
  */
 import { Application } from 'pixi.js';
-import { Session } from './net/session';
+import { Session, MAX_PLAYERS, type SessionStatus } from './net/session';
+import { parseReplay, replayWorld, replayFileName, type Replay } from './net/replay';
+import { hashWorld } from './sim/serialize';
 import { startBackgroundTicker } from './net/ticker';
 import { TrysteroTransport, p2pOptionsFromUrl } from './net/p2p';
 import { LocalTransport, type Transport } from './net/transport';
@@ -15,7 +17,7 @@ import { BTN_LEFT, BTN_RIGHT, BTN_UP, BTN_DOWN, BTN_JUMP, BTN_ACTION1, BTN_ACTIO
 import { CLASSES } from './data/defs';
 import { FP_ONE } from './sim/fixed';
 import { PlayerState, TICK_RATE } from './sim/types';
-import { CHEATS_ENABLED } from './sim/world';
+import { CHEATS_ENABLED, World } from './sim/world';
 import { runCheat } from './dev/cheats'; // [DEV] 릴리즈 시 주석 처리
 
 const TICK_MS = 1000 / TICK_RATE;
@@ -27,16 +29,16 @@ function randomRoomCode(): string {
   return s;
 }
 
-function showMenu(): Promise<{ name: string; room: string; offline: boolean }> {
+function showMenu(): Promise<{ name: string; room: string; offline: boolean; replay?: Uint8Array }> {
   return new Promise((resolve) => {
     const hashRoom = location.hash.replace('#', '').toUpperCase();
-    const savedName = localStorage.getItem('kag2.name') ?? '';
+    const savedName = localStorage.getItem('rw.name') ?? '';
     const el = document.createElement('div');
     el.className = 'menu';
     el.innerHTML = `
       <div class="panel">
         <div class="langs">${langButtonsHtml()}</div>
-        <h1 translate="no">KAG2 Web</h1>
+        <h1 translate="no">Rubblewar</h1>
         <p class="sub">${t('subtitle')}</p>
         <label>${t('name')}</label>
         <input id="m-name" maxlength="12" value="${savedName.replace(/"/g, '')}" placeholder="${t('namePlaceholder')}" translate="no">
@@ -45,6 +47,10 @@ function showMenu(): Promise<{ name: string; room: string; offline: boolean }> {
         <div class="row">
           <button id="m-join">${t('join')}</button>
           <button id="m-offline" class="secondary">${t('offline')}</button>
+        </div>
+        <div class="row small-row">
+          <button id="m-replay" class="secondary small">${t('loadReplay')}</button>
+          <input id="m-replay-file" type="file" accept=".rwr" hidden>
         </div>
         <div class="help">
           ${t('help1')}<br>
@@ -59,13 +65,21 @@ function showMenu(): Promise<{ name: string; room: string; offline: boolean }> {
     const go = (offline: boolean) => {
       const name = (nameEl.value.trim() || 'Player' + ((Math.random() * 90 + 10) | 0)).slice(0, 12);
       const room = (roomEl.value.trim().toUpperCase() || randomRoomCode()).slice(0, 16);
-      localStorage.setItem('kag2.name', name);
+      localStorage.setItem('rw.name', name);
       if (!offline) location.hash = room;
       el.remove();
       resolve({ name, room, offline });
     };
     el.querySelectorAll<HTMLButtonElement>('.langs button').forEach((b) => b.addEventListener('click', () => { setLang(b.dataset.lang as Lang); el.remove(); void showMenu().then(resolve); }));
     el.querySelector('#m-join')!.addEventListener('click', () => go(false));
+    const fileEl = el.querySelector<HTMLInputElement>('#m-replay-file')!;
+    el.querySelector('#m-replay')!.addEventListener('click', () => fileEl.click());
+    fileEl.addEventListener('change', async () => {
+      const f = fileEl.files?.[0]; if (!f) return;
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      el.remove();
+      resolve({ name: 'replay', room: '', offline: true, replay: bytes });
+    });
     el.querySelector('#m-offline')!.addEventListener('click', () => go(true));
     nameEl.focus();
     roomEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(false); });
@@ -109,9 +123,88 @@ class InputState {
   consumed(): void { this.latched.clear(); this.clsRequest = 3; this.cheatRequest = 0; this.cheatA0 = 0; this.cheatA1 = 0; }
 }
 
+function downloadBytes(bytes: Uint8Array, filename: string): void {
+  const blob = new Blob([bytes as BlobPart], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/**
+ * 리플레이 재생: 파일의 프레임을 30Hz 로 돌리며 기록된 해시와 비교한다.
+ * 조작: Space 일시정지, ←/→ 한 틱, ↑/↓ 속도, [ ] 관전 대상 변경, Esc 메뉴로
+ */
+function runReplay(bytes: Uint8Array, app: Application, renderer: Renderer, hud: Hud): void {
+  let rep: Replay;
+  try { rep = parseReplay(bytes); } catch (e) { alert(String(e)); location.reload(); return; }
+  const world = replayWorld(rep, (seed) => new World(seed));
+  (window as unknown as { __replay: unknown }).__replay = { world, rep, stats: () => ({ verified, mismatchAt }) };
+  // 효과음: 게임과 동일 (첫 키/클릭에서 오디오 잠금 해제, 관전 대상 위치 기준)
+  const sound = new Sound();
+  sound.setVolume(Number(localStorage.getItem('rw.vol') ?? '50') / 100);
+  const unlock = () => sound.unlock();
+  window.addEventListener('keydown', unlock);
+  window.addEventListener('mousedown', unlock);
+  renderer.eventSink = (e) => sound.onEvent(e);
+  let tick = world.tick;
+  let paused = false, speed = 1, acc = 0, followIdx = 0;
+  let verified = 0, mismatchAt = -1;
+  let lastFrame = performance.now(), lastStepAt = performance.now();
+  renderer.attachWorld(world);
+  const stepOne = (): void => {
+    if (world.tick >= rep.endTick) return;
+    const f = rep.frames.get(world.tick) ?? { inputs: new Map(), joins: [], leaves: [] };
+    world.step(f);
+    const h = rep.hashes.get(world.tick);
+    if (h !== undefined) { if (hashWorld(world) === h) verified++; else if (mismatchAt < 0) mismatchAt = world.tick; }
+    tick = world.tick;
+    lastStepAt = performance.now();
+  };
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
+    else if (e.code === 'ArrowRight') { paused = true; stepOne(); }
+    else if (e.code === 'ArrowUp') speed = Math.min(8, speed * 2);
+    else if (e.code === 'ArrowDown') speed = Math.max(0.25, speed / 2);
+    else if (e.code === 'BracketRight') followIdx++;
+    else if (e.code === 'BracketLeft') followIdx--;
+    else if (e.code === 'Escape') location.reload();
+  });
+  // 스텝은 워커 타이머로 (탭이 가려져도 진행), 렌더링만 rAF
+  let lastStepClock = performance.now();
+  startBackgroundTicker(16, () => {
+    const now = performance.now();
+    const dt = Math.min(200, now - lastStepClock);
+    lastStepClock = now;
+    if (paused) return;
+    acc += dt * speed;
+    let n = 0;
+    while (acc >= TICK_MS && n < 8) { acc -= TICK_MS; stepOne(); n++; }
+    if (acc > TICK_MS * 4) acc = TICK_MS * 4;
+  });
+  app.ticker.add(() => {
+    const now = performance.now();
+    const dtMs = Math.min(100, now - lastFrame);
+    lastFrame = now;
+    const ps = world.players;
+    const follow = ps.length ? ps[((followIdx % ps.length) + ps.length) % ps.length].id : 0;
+    const fp = world.getPlayer(follow);
+    if (fp) { sound.listenerX = fp.x / FP_ONE; sound.listenerY = fp.y / FP_ONE; }
+    const alpha = paused ? 1 : Math.min(1, (now - lastStepAt) / (TICK_MS / speed));
+    renderer.update(world, alpha, dtMs / TICK_MS, follow, app.screen.width, app.screen.height);
+    const status = mismatchAt >= 0 ? `MISMATCH @${mismatchAt}` : `verified ${verified}`;
+    const st: SessionStatus = {
+      phase: 'playing', pid: follow, tick, members: ps.length, coordinator: false, stalledMs: 0, desyncs: 0,
+      message: `REPLAY ${tick}/${rep.endTick} ×${speed}${paused ? ' ⏸' : ''} · ${status} · Space ←→ ↑↓ [ ] Esc`,
+      peers: 0, relays: null, elapsedMs: 0, room: rep.room, offline: true, maxPlayers: MAX_PLAYERS,
+    };
+    hud.update(world, follow, st, false, false);
+  });
+}
+
 async function main(): Promise<void> {
   setLang(detectLang());
-  const { name, room, offline } = await showMenu();
+  const { name, room, offline, replay } = await showMenu();
   const container = document.getElementById('game')!;
   const app = new Application();
   await app.init({ resizeTo: window, antialias: false, roundPixels: true, background: 0x6fa8dc, preference: 'webgl' });
@@ -123,17 +216,18 @@ async function main(): Promise<void> {
   (window as unknown as { __app: unknown; __renderer: unknown }).__renderer = renderer;
   const hud = new Hud(container);
   (window as unknown as { __hud: unknown }).__hud = hud;
+  if (replay) { runReplay(replay, app, renderer, hud); return; }
   const input = new InputState(app.canvas);
   const sound = new Sound();
   // 설정 (localStorage)
   const volEl = hud.settingsEl.querySelector<HTMLInputElement>('.set-vol')!;
   const zoomEl = hud.settingsEl.querySelector<HTMLSelectElement>('.set-zoom')!;
-  const savedVol = Number(localStorage.getItem('kag2.vol') ?? '50');
-  const savedZoom = Number(localStorage.getItem('kag2.zoom') ?? '3');
+  const savedVol = Number(localStorage.getItem('rw.vol') ?? '50');
+  const savedZoom = Number(localStorage.getItem('rw.zoom') ?? '3');
   volEl.value = String(savedVol); sound.setVolume(savedVol / 100);
   zoomEl.value = String(savedZoom); renderer.zoom = savedZoom;
-  volEl.addEventListener('input', () => { sound.setVolume(Number(volEl.value) / 100); localStorage.setItem('kag2.vol', volEl.value); });
-  zoomEl.addEventListener('change', () => { renderer.zoom = Number(zoomEl.value); localStorage.setItem('kag2.zoom', zoomEl.value); });
+  volEl.addEventListener('input', () => { sound.setVolume(Number(volEl.value) / 100); localStorage.setItem('rw.vol', volEl.value); });
+  zoomEl.addEventListener('change', () => { renderer.zoom = Number(zoomEl.value); localStorage.setItem('rw.zoom', zoomEl.value); });
   const unlock = () => sound.unlock();
   window.addEventListener('keydown', unlock);
   window.addEventListener('mousedown', unlock);
@@ -152,12 +246,18 @@ async function main(): Promise<void> {
   (window as unknown as { __transport: unknown }).__transport = transport;
   const session = new Session(transport, name, room, (s) => { console.log('[net]', s); hud.pushLog(s); });
   session.onChat = (pid, who, text) => { const q = session.world?.getPlayer(pid); hud.pushChat(who, text, q?.team ?? -1); };
+  // 디싱크 감지 시 리플레이 자동 저장 (개발용 — 릴리즈에서는 CHEATS_ENABLED 와 함께 끈다)
+  if (CHEATS_ENABLED) session.onDesync = (bytes) => { downloadBytes(bytes, replayFileName(room)); hud.pushLog('[dev] desync replay saved'); };
   // 채팅/설정 키 (게임 입력보다 먼저 처리)
   window.addEventListener('keydown', (e) => {
     if (hud.chatOpen) {
       if (e.code === 'Enter') {
         const text = hud.closeChat().trim(); input.blocked = false;
-        if (text.startsWith('/')) {
+        if (text === '/replay') {
+          // 리플레이 저장 (치트 아님 — 항상 가능)
+          const bytes = session.exportReplay();
+          if (bytes.length) { downloadBytes(bytes, replayFileName(room)); hud.pushLog(t('replaySaved')); }
+        } else if (text.startsWith('/')) {
           // [DEV] 치트 콘솔 — 릴리즈 시 아래 한 줄을 주석 처리
           const w0 = session.world;
           const ctx = w0 ? { spawnX: w0.spawnX, mapW: w0.map.w, team: w0.getPlayer(session.pid)?.team ?? 0, groundY: (tx: number) => { let ty = 0; while (ty < w0.map.h - 1 && !w0.map.isSolid(tx, ty)) ty++; return ty; } } : undefined;

@@ -5,7 +5,7 @@ import { BTN_ACTION1, BTN_ACTION2, BTN_USE, EMPTY_INPUT, type Input } from '../s
 import { PlayerState } from '../src/sim/types';
 import { px } from '../src/sim/fixed';
 import { serializeWorld, deserializeWorld, hashWorld } from '../src/sim/serialize';
-import { T_AIR, T_DIRT_BACK, tileId } from '../src/data/defs';
+import { T_AIR, T_DIRT_BACK, tileId, CLASSES } from '../src/data/defs';
 
 function setup(): World {
   const w = new World(42);
@@ -21,19 +21,42 @@ const run = (w: World, n: number, inputs: Record<number, Input>): void => {
 };
 
 describe('combat rules', () => {
-  it('knight slash damages enemy in front, shield blocks from front', () => {
+  it('rifle: held fire empties the magazine with growing spread, reloads; bullets hurt; ballistic shield blocks from front', () => {
     const w = setup();
     const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
-    const hp0 = b.hp;
-    run(w, 8, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 } });
+    const hp0 = b.hp, mag0 = a.mag, spread0 = a.spread;
+    expect(mag0).toBe(30);
+    // 12틱 홀드 → 3발 (rof 4)
+    run(w, 12, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 } });
+    expect(a.mag).toBe(mag0 - 3);
+    expect(a.spread).toBeGreaterThan(spread0);
+    run(w, 20, { 1: { ...EMPTY_INPUT, cx: 10 } });
     expect(b.hp).toBeLessThan(hp0);
-    // b 가 a 를 바라보며 방패 → 막힘
-    const hp1 = b.hp;
+    expect(a.spread).toBe(spread0); // 쉬면 회복
+    // 계속 쏘면 탄창이 비고 자동 재장전
+    run(w, 30 * 4 + 4, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 } });
+    expect(a.mag).toBe(0);
+    expect(a.reload).toBeGreaterThan(0);
+    run(w, 60, { 1: { ...EMPTY_INPUT, cx: 10 } });
+    expect(a.mag).toBe(30);
+    expect(a.ammo).toBe(120 - 30);
+    // b 가 a 를 바라보며 방탄판 → 막힘
+    b.hp = 8; const hp1 = b.hp;
     b.facing = -1;
     run(w, 30, { 1: { ...EMPTY_INPUT, cx: 10 }, 2: { buttons: BTN_ACTION2, cx: -10, cy: 0, slot: 0, cls: 3 } });
-    run(w, 8, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 }, 2: { buttons: BTN_ACTION2, cx: -10, cy: 0, slot: 0, cls: 3 } });
+    run(w, 24, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 }, 2: { buttons: BTN_ACTION2, cx: -10, cy: 0, slot: 0, cls: 3 } });
+    run(w, 20, { 2: { buttons: BTN_ACTION2, cx: -10, cy: 0, slot: 0, cls: 3 } });
     expect(b.hp).toBe(hp1);
-    void a;
+  });
+
+  it('breach: advancing with the shield pushes an enemy back', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
+    b.x = a.x + px(6); b.y = a.y; b.vx = 0;
+    const bx0 = b.x;
+    run(w, 10, { 1: { buttons: BTN_ACTION2 | 2, cx: 10, cy: 0, slot: 0, cls: 3 } }); // 방패 + 오른쪽
+    expect(b.x).toBeGreaterThan(bx0 + px(4));
+    expect(b.hp).toBe(CLASSES[b.cls].hp); // 피해 없음
   });
 
   it('repeated slashes kill and respawn the victim, kill counted', () => {
@@ -211,19 +234,19 @@ describe('combat rules', () => {
     // 작업장 타일을 a 의 발 밑 칸에 (플레이어와 겹치는 비고체 타일)
     const tx = (a.x + px(3)) >> 11, ty = (a.y + px(7)) >> 11;
     w.map.set(tx, ty, tileId('workshop'));
-    a.gold = 10; a.bombs = 0; a.hp = 4;
+    a.gold = 5; a.ammo = 0; a.hp = 4;
     run(w, 1, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
-    expect(a.bombs).toBe(1);
-    expect(a.gold).toBe(6);
+    expect(a.ammo).toBe(60);
+    expect(a.gold).toBe(3);
     // 홀드는 재구매 없음, 다시 눌러야 구매
     run(w, 5, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
-    expect(a.bombs).toBe(1);
+    expect(a.ammo).toBe(60);
     run(w, 1, {});
     run(w, 1, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
-    expect(a.bombs).toBe(2);
-    expect(a.gold).toBe(2);
+    expect(a.ammo).toBe(120);
+    expect(a.gold).toBe(1);
     run(w, 1, {}); run(w, 1, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
-    expect(a.bombs).toBe(2); // 금 부족
+    expect(a.ammo).toBe(120); // 금 부족
     // 회복
     const hp0 = a.hp;
     run(w, 95, {});
@@ -277,7 +300,7 @@ describe('combat rules', () => {
     }
     expect(b.state).toBe(PlayerState.Dead);
     expect(b.wood + b.stone + b.gold).toBe(0);
-    expect(w.drops.length).toBe(4); // 나무/돌/금 + 기사 폭탄
+    expect(w.drops.length).toBe(5); // 나무/돌/금 + 수류탄 + 탄약
     // a 가 드롭 위로 이동해 줍기 (드롭이 땅에 떨어질 때까지 진행)
     run(w, 40, {});
     a.bombs = 0;
@@ -347,8 +370,10 @@ describe('combat rules', () => {
     const w = setup();
     const a = w.getPlayer(1)!;
     a.cls = 2; a.state = PlayerState.Alive; a.hp = 8;
+    const b = w.getPlayer(2)!; b.x = a.x - px(60); // b 가 드롭을 대신 줍지 않게 멀리
     // 플레이어 발밑에 바닥, 옆에 나무 기둥 하나
     const tx = (a.x >> 11) + 2, ty = a.y >> 11;
+    for (let y = ty - 6; y <= ty; y++) for (let x = tx - 4; x <= tx + 4; x++) w.map.set(x, y, 0); // 주변 나무/잎 제거
     w.map.set(tx, ty, tileId('tree_trunk'));
     w.map.set(tx, ty + 1, tileId('dirt'));
     a.wood = 0;
@@ -569,8 +594,34 @@ describe('variable jump', () => {
       return (y0 - minY) / 256;
     };
     const tap = jumpHeight(1), hold = jumpHeight(20);
-    expect(tap).toBeGreaterThan(15);
-    expect(hold).toBeGreaterThan(tap * 1.6);
-    expect(hold).toBeLessThan(80);
+    expect(tap).toBeGreaterThan(10); // 1칸 이상
+    expect(hold).toBeGreaterThan(tap * 1.5);
+    expect(hold).toBeLessThan(32); // 4칸 미만
+  });
+});
+
+describe('ladders', () => {
+  it('can jump off a ladder, stands on the ladder top, and drops through with S', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!;
+    a.state = PlayerState.Alive; a.hp = 8;
+    run(w, 5, {});
+    const lx = a.x >> 11, gy = (a.y + px(14)) >> 11;
+    for (let y = gy - 6; y < gy; y++) w.map.set(lx, y, tileId('ladder'));
+    a.x = lx << 11; run(w, 2, {});
+    run(w, 12, { 1: { ...EMPTY_INPUT, buttons: 4 } }); // W 로 조금 오름
+    expect(a.onLadder).toBe(true);
+    const y1 = a.y; let minY = y1;
+    for (let t = 0; t < 20; t++) { run(w, 1, t < 6 ? { 1: { ...EMPTY_INPUT, buttons: 16 } } : {}); minY = Math.min(minY, a.y); }
+    expect((y1 - minY) / 256).toBeGreaterThan(8); // 사다리에서 점프로 상승
+    // 꼭대기까지 올라가면 사다리 위에 선다
+    a.x = lx << 11; a.vx = 0;
+    run(w, 40, { 1: { ...EMPTY_INPUT, buttons: 4 } });
+    run(w, 20, {});
+    expect(a.onGround).toBe(true);
+    expect((a.y + px(14)) >> 11).toBe(gy - 6);
+    // S 로 내려감
+    run(w, 20, { 1: { ...EMPTY_INPUT, buttons: 8 } });
+    expect((a.y + px(14)) >> 11).toBeGreaterThan(gy - 6);
   });
 });

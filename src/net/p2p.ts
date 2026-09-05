@@ -11,7 +11,7 @@ import { joinRoom as joinTorrent, getRelaySockets as torrentSockets } from '@try
 import { selfId, type Room, type DataPayload } from '@trystero-p2p/core';
 import type { Transport, ControlMsg } from './transport';
 
-const APP_ID = 'kag2web-v1';
+const APP_ID = 'rubblewar-v1';
 
 export interface P2POptions {
   strategy?: 'nostr' | 'torrent';

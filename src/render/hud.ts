@@ -247,7 +247,7 @@ export class Hud {
     }
     const score = `${world.score[0]}:${world.score[1]}`;
     const key = p
-      ? `${score}|${p.cls}|${p.hp}|${p.wood}|${p.stone}|${p.gold}|${p.slot}|${p.bombs}|${p.arrows}|${p.state}|${p.respawnAt - world.tick}|${inBase}|${world.roundOverAt}|${p.kills}|${p.deaths}|${p.carryingFlag}|${canMount}|${p.vehicle}`
+      ? `${score}|${p.cls}|${p.hp}|${p.wood}|${p.stone}|${p.gold}|${p.slot}|${p.bombs}|${p.arrows}|${p.state}|${p.respawnAt - world.tick}|${inBase}|${world.roundOverAt}|${p.kills}|${p.deaths}|${p.carryingFlag}|${canMount}|${p.vehicle}|${p.mag}|${p.ammo}|${p.reload > 0}`
       : `${score}|none`;
     if (key === this.lastKey) return;
     this.lastKey = key;
@@ -281,7 +281,7 @@ export class Hud {
     } else if (p && canMount) {
       centerHtml = `<div class="hint">${t('mountHint')}</div>`;
     } else if (p && inBase) {
-      centerHtml = `<div class="hint">${t('baseHint')}</div>`;
+      centerHtml = `<div class="hint">${t('baseHint', { c0: dataLabel(CLASSES[0]), c1: dataLabel(CLASSES[1]), c2: dataLabel(CLASSES[2]) })}</div>`;
     }
     this.center.innerHTML = centerHtml;
 
@@ -294,7 +294,8 @@ export class Hud {
         if (!it) return;
         const sel = i === p.slot ? ' sel' : '';
         let extra = '';
-        if (it.id === 'bomb') extra = `<span class="cnt">${p.bombs}</span>`;
+        if (it.id === 'bomb' || it.id === 'grenade') extra = `<span class="cnt">${p.bombs}</span>`;
+        if (it.id === 'rifle') extra = `<span class="cnt">${p.reload > 0 ? '⟳' : p.mag}/${p.ammo}</span>`;
         if (it.id === 'bow') extra = `<span class="cnt">${p.arrows}</span>`;
         if (it.cost) {
           const afford = RESOURCE_KINDS.every((r) => !it.cost![r] || p[r] >= it.cost![r]!);

@@ -42,6 +42,11 @@ export const PART_PAINTERS: Record<string, { w: number; h: number; paint: Painte
     rect(c, 0, 0, 6, 6, '#8d8d97'); rect(c, 1, 0, 4, 1, '#b5b5c0'); rect(c, 4, 2, 2, 1, '#1a1a22'); rect(c, 1, 5, 4, 1, '#5a5a66');
     px(c, 0, 0, 'rgba(0,0,0,0)'); px(c, 5, 0, 'rgba(0,0,0,0)');
   } },
+  head_rifleman: { w: 6, h: 6, paint: (c) => {
+    rect(c, 0, 0, 6, 4, '#4f5a3c'); rect(c, 1, 0, 4, 1, '#66744d'); rect(c, 1, 3, 5, 3, '#e6c39c'); rect(c, 4, 3, 1, 1, '#222'); rect(c, 0, 3, 6, 1, '#3d4630');
+    px(c, 0, 0, 'rgba(0,0,0,0)'); px(c, 5, 0, 'rgba(0,0,0,0)');
+  } },
+  backpack: { w: 3, h: 5, paint: (c) => { rect(c, 0, 0, 3, 5, '#5a6644'); rect(c, 0, 1, 3, 1, '#3d4630'); rect(c, 1, 3, 1, 1, '#8a8a70'); } },
   head_archer: { w: 6, h: 6, paint: (c) => {
     rect(c, 0, 0, 6, 6, '#3f7a3a'); rect(c, 2, 2, 4, 3, '#e6c39c'); rect(c, 4, 3, 1, 1, '#222'); rect(c, 0, 0, 6, 1, '#2e5c2b'); px(c, 0, 0, 'rgba(0,0,0,0)');
   } },
@@ -53,6 +58,9 @@ export const PART_PAINTERS: Record<string, { w: number; h: number; paint: Painte
   none: { w: 1, h: 1, paint: () => {} },
   weapon_sword: { w: 9, h: 3, paint: (c) => { rect(c, 0, 1, 2, 1, '#6b4a2b'); rect(c, 2, 0, 1, 3, '#c9a227'); rect(c, 3, 1, 6, 1, '#dfe4ea'); px(c, 8, 1, '#ffffff'); } },
   weapon_bomb: { w: 4, h: 4, paint: (c) => { rect(c, 0, 1, 3, 3, '#222'); px(c, 1, 1, '#444'); px(c, 3, 0, '#ffb000'); } },
+  weapon_rifle: { w: 11, h: 3, paint: (c) => { rect(c, 0, 1, 3, 2, '#5a3a1b'); rect(c, 2, 0, 7, 2, '#2a2a30'); rect(c, 9, 0, 2, 1, '#44444c'); rect(c, 4, 2, 2, 1, '#2a2a30'); px(c, 6, 1, '#555560'); } },
+  weapon_grenade: { w: 3, h: 4, paint: (c) => { rect(c, 0, 1, 3, 3, '#4f5a3c'); rect(c, 1, 0, 1, 1, '#8a8a90'); px(c, 1, 2, '#3d4630'); } },
+  bullet: { w: 3, h: 1, paint: (c) => { rect(c, 0, 0, 2, 1, '#ffd27a'); px(c, 2, 0, '#ffffff'); } },
   weapon_bow: { w: 3, h: 9, paint: (c) => { rect(c, 1, 0, 1, 9, '#8a5a2b'); rect(c, 2, 1, 1, 7, '#e8e8e8'); px(c, 0, 0, '#8a5a2b'); px(c, 0, 8, '#8a5a2b'); } },
   weapon_pickaxe: { w: 7, h: 4, paint: (c) => { rect(c, 0, 1, 5, 1, '#6b4a2b'); rect(c, 4, 0, 3, 1, '#9a9aa5'); rect(c, 6, 1, 1, 2, '#9a9aa5'); px(c, 5, 1, '#7a7a85'); } },
   arrow: { w: 6, h: 1, paint: (c) => { rect(c, 0, 0, 5, 1, '#8a5a2b'); px(c, 5, 0, '#dfe4ea'); } },
@@ -61,8 +69,9 @@ export const PART_PAINTERS: Record<string, { w: number; h: number; paint: Painte
   cart_body: { w: 24, h: 8, paint: (c) => { rect(c, 1, 2, 22, 5, '#8a5a2b'); rect(c, 0, 1, 24, 1, '#a8763e'); rect(c, 2, 3, 20, 1, '#6b4a2b'); rect(c, 20, 0, 3, 2, '#5a3a1b'); rect(c, 1, 0, 3, 2, '#5a3a1b'); px(c, 4, 4, '#c8a060'); px(c, 19, 4, '#c8a060'); } },
   wheel: { w: 8, h: 8, paint: (c) => { rect(c, 1, 0, 6, 8, '#3a3a40'); rect(c, 0, 1, 8, 6, '#3a3a40'); rect(c, 2, 2, 4, 4, '#8a5a2b'); rect(c, 3, 0, 2, 8, '#6b4a2b'); rect(c, 0, 3, 8, 2, '#6b4a2b'); px(c, 3, 3, '#ffd76a'); px(c, 4, 4, '#ffd76a'); } },
   particle: { w: 1, h: 1, paint: (c) => rect(c, 0, 0, 1, 1, '#ffffff') },
-  edge_h: { w: 8, h: 1, paint: (c) => rect(c, 0, 0, 8, 1, '#1a1208') },
-  edge_v: { w: 1, h: 8, paint: (c) => rect(c, 0, 0, 1, 8, '#1a1208') },
+  edge_h: { w: 8, h: 1, paint: (c) => rect(c, 0, 0, 8, 1, '#ffffff') },
+  edge_v: { w: 1, h: 8, paint: (c) => rect(c, 0, 0, 1, 8, '#ffffff') },
+  edge_px: { w: 1, h: 1, paint: (c) => rect(c, 0, 0, 1, 1, '#ffffff') },
   drop_wood: { w: 5, h: 4, paint: (c) => { rect(c, 0, 0, 5, 4, '#8a5a2b'); rect(c, 0, 1, 5, 1, '#a8763e'); px(c, 4, 0, '#6b4a2b'); } },
   drop_stone: { w: 5, h: 4, paint: (c) => { rect(c, 0, 1, 5, 3, '#8d8d95'); rect(c, 1, 0, 3, 1, '#9a9aa5'); px(c, 1, 2, '#6d6d75'); } },
   drop_bomb: { w: 4, h: 4, paint: (c) => { rect(c, 0, 1, 3, 3, '#222'); px(c, 1, 1, '#444'); px(c, 3, 0, '#ffb000'); } },

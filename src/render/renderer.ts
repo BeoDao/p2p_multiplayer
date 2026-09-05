@@ -6,6 +6,7 @@
  */
 import { Application, Container, Sprite, Graphics, RenderTexture, Text, type Texture } from 'pixi.js';
 import { tileId } from '../data/defs';
+import { OutlineFilter } from './outline';
 import { World, THROW_CHARGE_TICKS } from '../sim/world';
 import { WATER_MAX } from '../sim/tilemap';
 import { PlayerState, ProjKind, type Player, type Vehicle, type WorldEvent } from '../sim/types';
@@ -46,6 +47,8 @@ export class Renderer {
   private tileLayer = new Container();
   private bgTileLayer = new Container();
   private entityLayer = new Container();
+  private labelLayer = new Container();
+  private outline!: OutlineFilter;
   private fxLayer = new Container();
   private uiLayer = new Container();
   private chunks: { sp: Sprite; rt: RenderTexture; dirty: boolean }[] = [];
@@ -69,8 +72,11 @@ export class Renderer {
   eventSink: ((e: WorldEvent) => void) | null = null;
 
   constructor(public app: Application, public tex: TextureRegistry) {
-    this.worldLayer.addChild(this.bgTileLayer, this.tileLayer, this.entityLayer, this.fxLayer, this.uiLayer);
+    this.worldLayer.addChild(this.bgTileLayer, this.tileLayer, this.entityLayer, this.labelLayer, this.fxLayer, this.uiLayer);
     this.entityLayer.sortableChildren = true;
+    // 엔티티 아웃라인 (캐릭터·탈것·드롭·투사체): 레이어 전체에 셰이더 한 번
+    this.outline = new OutlineFilter(this.zoom, 0.45);
+    this.entityLayer.filters = [this.outline];
     this.uiLayer.addChild(this.cursor);
     this.ghost.alpha = 0.45; this.ghost.visible = false;
     this.uiLayer.addChild(this.ghost);
@@ -152,15 +158,27 @@ export class Renderer {
           if (team < 2) sp.tint = team === 0 ? 0x9ab0ff : 0xffa0a0;
         }
         cont.addChild(sp);
-        // 자동 타일링: 고체 타일의 노출된 면에 어두운 테두리(1px) — 흙/돌 덩어리의 윤곽이 드러남
-        if (def.solid && !def.door) {
-          const exposed = (nx: number, ny: number): boolean => map.inBounds(nx, ny) && !map.isSolid(nx, ny);
+        // 아웃라인: 모든 앞 타일의 노출된 면에 1px 테두리 (그 타일의 평균색을 어둡게 한 색).
+        //  - 고체 타일: 이웃이 고체가 아닐 때 (흙-돌 사이엔 없음 → 덩어리 윤곽)
+        //  - 비고체(나무·사다리·작업장 등): 이웃이 다른 종류일 때 (기둥이 잎 속에서도 구분됨)
+        {
+          const exposed = (nx: number, ny: number): boolean => {
+            if (!map.inBounds(nx, ny)) return false;
+            if (def.solid) return !map.isSolid(nx, ny);
+            return map.get(nx, ny) !== t;
+          };
           const eh = this.tex.part('edge_h'), ev = this.tex.part('edge_v');
-          const add = (t: Texture, ox: number, oy: number) => { const e = new Sprite(t); e.position.set(tx * TILE_PX + ox, ty * TILE_PX + oy); e.alpha = 0.45; cont.addChild(e); };
+          const col = this.tex.tileOutline(def.texture);
+          const add = (tt: Texture, ox: number, oy: number) => { const e = new Sprite(tt); e.position.set(tx * TILE_PX + ox, ty * TILE_PX + oy); e.tint = col; cont.addChild(e); };
           if (exposed(x, y - 1)) add(eh, 0, 0);
           if (exposed(x, y + 1)) add(eh, 0, TILE_PX - 1);
           if (exposed(x - 1, y)) add(ev, 0, 0);
           if (exposed(x + 1, y)) add(ev, TILE_PX - 1, 0);
+          // 오목한 모서리: 양옆이 막혀 있는데 대각선만 뚫려 있으면 모서리 1px 가 비어 보인다 → 점 하나 채움
+          const ep = this.tex.part('edge_px');
+          for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+            if (exposed(x + dx, y + dy) && !exposed(x + dx, y) && !exposed(x, y + dy)) add(ep, dx < 0 ? 0 : TILE_PX - 1, dy < 0 ? 0 : TILE_PX - 1);
+          }
         }
       }
     }
@@ -222,10 +240,11 @@ export class Renderer {
     const skel = new Skeleton(this.tex);
     const cls = CLASSES[p.cls];
     skel.setSkin(cls.skin, {}, p.team);
-    const name = new Text({ text: p.name, style: { fontFamily: 'monospace', fontSize: 6, fill: TEAM_COLORS[p.team], stroke: { color: 0x000000, width: 1 } }, resolution: 4 });
+    const name = new Text({ text: p.name, style: { fontFamily: 'monospace', fontSize: 6, fill: TEAM_COLORS[p.team], stroke: { color: 0x000000, width: 1 } }, resolution: 4 }); // 닉네임: 얇은 검은 테두리(초기 방식), 셰이더 아웃라인은 적용 안 함(labelLayer)
     name.anchor.set(0.5, 1);
     const hp = new Graphics();
-    this.entityLayer.addChild(skel.root, name, hp);
+    this.entityLayer.addChild(skel.root);
+    this.labelLayer.addChild(name, hp); // 이름/체력바는 아웃라인 필터 밖
     skel.root.zIndex = 10; name.zIndex = 20; hp.zIndex = 20;
     v = { skel, name, hp, prevX: p.x, prevY: p.y, curX: p.x, curY: p.y, lastAnimEvent: p.animEvent, cls: p.cls, team: p.team, weaponKey: '' };
     this.players.set(p.id, v);
@@ -289,19 +308,21 @@ export class Renderer {
     if (p.animEvent !== v.lastAnimEvent) {
       v.lastAnimEvent = p.animEvent;
       if (item?.id === 'sword') skel.playOverlay('slash');
-      else if (item?.id === 'bomb') skel.playOverlay('throw');
+      else if (item?.id === 'bomb' || item?.id === 'grenade') skel.playOverlay('throw');
       else if (item?.id === 'pickaxe' || item?.kind === 'block') skel.playOverlay('dig');
     }
     // 조준 (활 / 폭탄): 앞팔이 커서를 향함
-    if (item?.id === 'bow' || (item?.id === 'bomb' && (p.attackTimer > 0 || p.charge > 0))) {
+    const throwing = (item?.id === 'bomb' || item?.id === 'grenade') && (p.attackTimer > 0 || p.charge > 0);
+    if (item?.id === 'bow' || item?.id === 'rifle' || throwing) {
       let ang = Math.atan2(p.aimY, p.aimX);
-      if (item.id === 'bow' && cls.bow) {
+      const handDef = item.id === 'bow' ? cls.bow : item.id === 'rifle' ? cls.gun : undefined;
+      if (handDef) {
         // 팔은 시뮬의 발사 원점(활 손)을 향한다: 어깨 → (몸 중앙 + handY + 조준 방향*handReach). 활이 가슴 높이로 내려온다.
         const len = Math.hypot(p.aimX, p.aimY) || 1;
         const dx = (p.aimX || p.facing) / len, dy = p.aimY / len;
-        const reach = cls.bow.handReach ?? 0;
+        const reach = handDef.handReach ?? 0;
         const shoulderUp = SHOULDER_ABOVE_CENTER;
-        ang = Math.atan2(shoulderUp + (cls.bow.handY ?? 0) + dy * reach, dx * reach || dx);
+        ang = Math.atan2(shoulderUp + (handDef.handY ?? 0) + dy * reach, dx * reach || dx);
       }
       skel.setAim(['armF', 'forearmF'], ang);
     } else skel.setAim(null);
@@ -341,6 +362,7 @@ export class Renderer {
         case 'explode': this.spawnParticles(x, y, 40, 0xffa020, 4, 25); this.spawnParticles(x, y, 20, 0x404040, 2, 40); this.addShake(x, y, 6); break;
         case 'dig': { const def = e.tile !== undefined ? TILE_TABLE[e.tile] : undefined; this.spawnParticles(x, y, 5, def?.name === 'stone' || def?.name === 'gold_ore' ? 0x909090 : 0x7a5230, 1.2, 15); break; }
         case 'build': this.spawnParticles(x, y, 4, 0xffffff, 0.8, 10); break;
+        case 'shoot': if (e.tile === 1) this.spawnParticles(x, y, 3, 0xffe080, 1.5, 4); break;
         case 'mount': this.spawnParticles(x + 3, y + 7, 6, 0xffffff, 1, 10); break;
         case 'vhit': this.spawnParticles(x, y, 6, 0xc0a060, 1.5, 12); if (e.tile) this.floatText(x, y - 6, `-${e.tile}`, 0xffc040); break;
         case 'loot': this.spawnParticles(x, y, 6, DROP_COLORS[e.tile ?? 0] ?? 0xa8763e, 1, 12); if (e.by) this.floatText(x, y - 3, `+${e.by}${DROP_ICONS[e.tile ?? 0] ?? ''}`, DROP_COLORS[e.tile ?? 0] ?? 0xffffff); break;
@@ -429,13 +451,13 @@ export class Renderer {
       seen.add(pr.id);
       let sp = this.projSprites.get(pr.id);
       if (!sp) {
-        sp = new Sprite(this.tex.part(pr.kind === ProjKind.Arrow ? 'arrow' : 'bomb'));
-        sp.anchor.set(pr.kind === ProjKind.Arrow ? 0.8 : 0.5, 0.5);
+        sp = new Sprite(this.tex.part(pr.kind === ProjKind.Arrow ? 'arrow' : pr.kind === ProjKind.Bullet ? 'bullet' : 'bomb'));
+        sp.anchor.set(pr.kind === ProjKind.Arrow ? 0.8 : pr.kind === ProjKind.Bullet ? 1 : 0.5, 0.5);
         this.entityLayer.addChild(sp);
         this.projSprites.set(pr.id, sp);
       }
       sp.position.set(pr.x / FP_ONE, pr.y / FP_ONE);
-      if (pr.kind === ProjKind.Arrow) { if (!pr.stuck) sp.rotation = Math.atan2(pr.vy, pr.vx); }
+      if (pr.kind === ProjKind.Arrow || pr.kind === ProjKind.Bullet) { if (!pr.stuck) sp.rotation = Math.atan2(pr.vy, pr.vx); }
       else sp.rotation += 0.2 * dtTicks * Math.sign(pr.vx || 1);
       if (pr.kind === ProjKind.Bomb && pr.timer < 30 && (pr.timer & 4)) sp.tint = 0xff4040; else sp.tint = 0xffffff;
     }
@@ -492,6 +514,7 @@ export class Renderer {
     this.camX = Math.max(viewW / 2, Math.min(mapW - viewW / 2, this.camX));
     this.camY = Math.max(viewH / 2 - 40, Math.min(mapH - viewH / 2, this.camY));
     this.worldLayer.scale.set(this.zoom);
+    this.outline.thickness = this.zoom;
     let sx = 0, sy = 0;
     if (this.shake > 0.2) {
       this.shakeSeed = (this.shakeSeed * 1103515245 + 12345) & 0x7fffffff;

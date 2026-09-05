@@ -17,7 +17,7 @@
         { "id": "weapon",   "bone": "hand",     "texture": "$weapon",    "ax": 0.25, "ay": 0.5, "z": 11 }
       ]
     },
-    "knight":  { "extends": "base", "vars": { "$head": "head_knight",  "$back": "shield_back" } },
+    "rifleman": { "extends": "base", "vars": { "$head": "head_rifleman", "$back": "backpack" } },
     "archer":  { "extends": "base", "vars": { "$head": "head_archer",  "$back": "quiver" } },
     "builder": { "extends": "base", "vars": { "$head": "head_builder", "$back": "none" } }
   }

@@ -46,12 +46,18 @@ export interface Player {
   vehicle: number; // 타고 있는 탈것 id 또는 0
   god: number; // [DEV] 1 이면 무적 (CHEATS_ENABLED)
   jumpTicks: number; // 가변 점프: 점프키를 누르고 있는 동안 추가 상승이 가능한 남은 틱
+  // 총기 (gun 이 있는 직업)
+  ammo: number; // 예비 탄약
+  mag: number; // 탄창 잔탄
+  reload: number; // 재장전 남은 틱 (0 = 아님)
+  spread: number; // 현재 탄 퍼짐 (BAM)
   digMode: number; // 곡괭이 홀드 모드: 0 없음, 1 앞 타일, 2 뒷벽 (누른 순간 결정, 실수로 뒷벽까지 파지 않게)
 }
 
 export const enum ProjKind {
   Arrow = 0,
   Bomb = 1,
+  Bullet = 2,
 }
 
 export interface Projectile {

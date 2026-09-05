@@ -3,7 +3,7 @@
  * 부동소수점, Date, Math.random, 객체 키 순서 의존 모두 금지.
  */
 import {
-  FP_ONE, TILE_FP, TILE_SHIFT, px, toTile, clamp, iabs, isign, imin, imax, vnorm, vlen, aabbOverlap, idiv,
+  FP_ONE, TILE_FP, TILE_SHIFT, px, toTile, clamp, iabs, isign, imin, imax, vnorm, vlen, aabbOverlap, idiv, batan2, bsin, bcos,
 } from './fixed';
 import { Rng } from './rng';
 import { spawnVehicle, handleMount, updateRider, updateVehicles, dismount, damageVehicle, vehicleDef, nearestMountable } from './vehicle';
@@ -50,7 +50,9 @@ const WATER_STEP_INTERVAL = 2;
 const MAX_DROPS = 256; // 드롭 상한 (초과 시 가장 오래된 것 제거)
 const DROP_PICKUP_DELAY = 20; // 떨어뜨린 직후 되줍기 방지
 const MAX_STEP = 900;
-const JUMP_HOLD_TICKS = 8; // 가변 점프 추가 상승 틱 수 // 서브스텝 최대 이동 (< 반 타일)
+const JUMP_HOLD_TICKS = 8; // 가변 점프 추가 상승 틱 수
+const JUMP_INITIAL_NUM = 13, JUMP_INITIAL_DEN = 20; // 점프 초기 속도 = jumpSpeed × 13/20 (탭 점프 높이)
+const JUMP_HOLD_DIV = 22; // 누르는 동안 틱당 추가 상승 = jumpSpeed / 22 // 서브스텝 최대 이동 (< 반 타일)
 /** [DEV] 치트 처리 스위치. 치트는 ` 콘솔(dev/cheats.ts)에서만 발생하며 입력으로 전달되므로 모든 피어에서 동일하게 적용된다. 출시 전 false. */
 export const CHEATS_ENABLED = true;
 const COLLAPSE_SEARCH_LIMIT = 2500; // 이보다 큰 덩어리는 안정으로 간주
@@ -136,7 +138,7 @@ export class World {
       x: 0, y: 0, vx: 0, vy: 0, onGround: false, onLadder: false, inWater: false, breath: BREATH_TICKS, facing: team === TEAM_BLUE ? 1 : -1,
       aimX: 0, aimY: 0, hp: 0, slot: 0, attackTimer: 0, attackWindup: 0, charge: 0, shield: false,
       bombs: 0, arrows: 0, wood: 0, stone: 0, gold: 0, carryingFlag: -1, kills: 0, deaths: 0,
-      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0, vehicle: 0, god: 0, jumpTicks: 0,
+      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0, vehicle: 0, god: 0, jumpTicks: 0, ammo: 0, mag: 0, reload: 0, spread: 0,
     };
     // 정렬 삽입
     let i = this.players.length;
@@ -167,6 +169,7 @@ export class World {
     p.state = PlayerState.Alive;
     p.bombs = cls.bombs ?? 0;
     p.arrows = cls.bow?.arrows ?? 0;
+    this.initGun(p, cls);
     p.attackTimer = 0; p.attackWindup = 0; p.charge = 0; p.shield = false;
     p.carryingFlag = -1;
     p.hurtTimer = 0;
@@ -355,6 +358,7 @@ export class World {
       p.hp = ncls.hp;
       p.bombs = ncls.bombs ?? 0;
       p.arrows = ncls.bow?.arrows ?? 0;
+      this.initGun(p, ncls);
       p.attackTimer = 0; p.attackWindup = 0; p.charge = 0; p.shield = false;
       p.slot = 0;
       p.animEvent++;
@@ -373,15 +377,22 @@ export class World {
     const down = (inp.buttons & BTN_DOWN) !== 0;
     const jump = (inp.buttons & BTN_JUMP) !== 0;
 
-    // 방패(기사): 우클릭 홀드 시 이동 속도 감소
+    // 방패/방탄판: 우클릭 홀드 시 이동 속도 감소. 앉기(S, 지상): 속도 절반, 총 퍼짐 감소
     p.shield = !!cls.shield && (inp.buttons & BTN_ACTION2) !== 0;
-    const speedMul = p.shield ? 2 : 4; // /4
+    const crouch = down && p.onGround && !p.onLadder && !this.map.isLadder(toTile(p.x + (w >> 1)), toTile(p.y + (h >> 1)));
+    const speedMul = p.shield || crouch ? 2 : 4; // /4
     const runSpeed = idiv(cls.runSpeed * speedMul, 4);
+    // 총기 상태: 퍼짐 회복, 재장전 진행
+    if (cls.gun) {
+      if (p.spread > cls.gun.spreadMin) p.spread = imax(cls.gun.spreadMin, p.spread - cls.gun.spreadDecay);
+      if (p.reload > 0 && --p.reload === 0) { const take = imin(cls.gun.magazine - p.mag, p.ammo); p.mag += take; p.ammo -= take; }
+    }
 
     // 사다리
     const cxT = toTile(p.x + (w >> 1)), cyT = toTile(p.y + (h >> 1));
     const onLadderTile = this.map.isLadder(cxT, cyT) || this.map.isLadder(cxT, toTile(p.y + h - 1));
-    p.onLadder = onLadderTile && (up || down || (p.onLadder && !p.onGround));
+    const wasOnLadder = p.onLadder;
+    p.onLadder = onLadderTile && (up || down || (wasOnLadder && !p.onGround));
     // W 는 사다리 위에서는 오르기, 아니면 점프
     const wantJump = jump || (up && !onLadderTile);
 
@@ -420,24 +431,37 @@ export class World {
       if (down) p.vy = imin(p.vy + 200, 900);
     } else if (p.onLadder) {
       p.vy = up ? -LADDER_SPEED : down ? LADDER_SPEED : 0;
-      if (jump && !up) { p.vy = cls.jumpSpeed; p.onLadder = false; this.events.push({ kind: 'jump', x: p.x, y: p.y, player: p.id }); }
+      // 사다리에서 점프(Space): 지상 점프와 동일 (가변 점프)
+      if (jump && !up) { p.vy = idiv(cls.jumpSpeed * JUMP_INITIAL_NUM, JUMP_INITIAL_DEN); p.jumpTicks = JUMP_HOLD_TICKS; p.onLadder = false; this.events.push({ kind: 'jump', x: p.x, y: p.y, player: p.id }); }
     } else {
-      // 가변 점프: 짧게 누르면 낮게, 누르고 있으면 JUMP_HOLD_TICKS 동안 추가 상승 (KAG 식)
-      if (wantJump && p.onGround) {
-        p.vy = idiv(cls.jumpSpeed * 3, 4); p.onGround = false; p.jumpTicks = JUMP_HOLD_TICKS;
+      // 가변 점프: 짧게 누르면 낮게, 누르고 있으면 JUMP_HOLD_TICKS 동안 추가 상승. 사다리에서 막 벗어난 틱에도 가능
+      if (wantJump && (p.onGround || wasOnLadder)) {
+        p.vy = idiv(cls.jumpSpeed * JUMP_INITIAL_NUM, JUMP_INITIAL_DEN); p.onGround = false; p.jumpTicks = JUMP_HOLD_TICKS;
         this.events.push({ kind: 'jump', x: p.x, y: p.y, player: p.id });
       } else if (p.jumpTicks > 0) {
-        if (wantJump && p.vy < 0) { p.vy += idiv(cls.jumpSpeed, 14); p.jumpTicks--; } else p.jumpTicks = 0;
+        if (wantJump && p.vy < 0) { p.vy += idiv(cls.jumpSpeed, JUMP_HOLD_DIV); p.jumpTicks--; } else p.jumpTicks = 0;
       }
       p.vy = imin(p.vy + GRAVITY, MAX_FALL);
     }
 
-    // 이동 + 충돌
-    this.moveBody(p, w, h);
+    // 이동 + 충돌 (사다리 꼭대기는 아래 키를 누르지 않으면 발판처럼 올라설 수 있다)
+    this.moveBody(p, w, h, !down && !p.onLadder);
 
     // 가시 피해
     this.checkSpikes(p, w, h);
 
+    // 돌파: 방탄판을 들고 전진하며 겹치는 적을 밀친다
+    if (p.shield && cls.shieldPush && iabs(p.vx) > 100 && p.attackTimer === 0) {
+      for (const q of this.players) {
+        if (q === p || q.state !== PlayerState.Alive || q.team === p.team || q.vehicle) continue;
+        const qc = CLASSES[q.cls];
+        if (!aabbOverlap(p.x - 256, p.y, w + 512, h, q.x, q.y, px(qc.width), px(qc.height))) continue;
+        if (isign(q.x - p.x) !== p.facing) continue;
+        this.hurt(q, 0, p.id, p.facing * cls.shieldPush, -300);
+        p.attackTimer = 10;
+        this.events.push({ kind: 'hit', x: q.x, y: q.y, player: q.id, team: -1 });
+      }
+    }
     // 액션
     this.updateActions(p, cls, inp, w, h);
 
@@ -530,6 +554,11 @@ export class World {
     }
   }
 
+  /** 총기 직업의 탄창/예비탄 초기화 */
+  private initGun(p: Player, cls: ClassDef): void {
+    p.mag = cls.gun?.magazine ?? 0; p.ammo = cls.gun?.ammo ?? 0; p.reload = 0; p.spread = cls.gun?.spreadMin ?? 0;
+  }
+
   private onShop(p: Player, w: number, h: number): boolean {
     const x0 = toTile(p.x), x1 = toTile(p.x + w - 1);
     const y0 = toTile(p.y), y1 = toTile(p.y + h - 1);
@@ -546,10 +575,11 @@ export class World {
     const use = (inp.buttons & BTN_USE) !== 0, usePrev = (p.lastInput.buttons & BTN_USE) !== 0;
     if (use && !usePrev && cls.shop) {
       const sh = cls.shop;
-      const cur = sh.buy === 'bombs' ? p.bombs : p.arrows;
+      const cur = sh.buy === 'bombs' ? p.bombs : sh.buy === 'ammo' ? p.ammo : p.arrows;
       if (cur < sh.max && this.canAfford(p, sh.cost)) {
         this.payCost(p, sh.cost);
         if (sh.buy === 'bombs') p.bombs = imin(sh.max, p.bombs + sh.amount);
+        else if (sh.buy === 'ammo') p.ammo = imin(sh.max, p.ammo + sh.amount);
         else p.arrows = imin(sh.max, p.arrows + sh.amount);
         this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id });
       }
@@ -564,7 +594,7 @@ export class World {
   }
 
   /** AABB 를 vx,vy 만큼 타일 충돌을 고려해 이동. 서브스텝으로 터널링 방지. */
-  private moveBody(p: Player, w: number, h: number): void {
+  private moveBody(p: Player, w: number, h: number, ladderTop = false): void {
     let remX = p.vx, remY = p.vy;
     p.onGround = false;
     while (remX !== 0 || remY !== 0) {
@@ -588,6 +618,9 @@ export class World {
           if (sy > 0) { p.y = (toTile(ny + h - 1) << TILE_SHIFT) - h; p.onGround = true; }
           else p.y = (toTile(ny) + 1) << TILE_SHIFT;
           p.vy = 0; remY = 0;
+        } else if (sy > 0 && ladderTop && toTile(p.y + h - 1) < toTile(ny + h - 1) && this.map.isLadder(toTile(p.x + (w >> 1)), toTile(ny + h - 1))) {
+          // 발이 사다리 윗칸 경계를 아래로 넘는 순간 → 사다리 꼭대기에 올라선다
+          p.y = (toTile(ny + h - 1) << TILE_SHIFT) - h; p.onGround = true; p.vy = 0; remY = 0;
         } else p.y = ny;
       }
     }
@@ -657,6 +690,32 @@ export class World {
         }
         break;
       }
+      case 'rifle': {
+        // 돌격소총: 홀드 연사. 반동으로 퍼짐이 커지고(앉으면 절반) 쉬면 회복. 탄창이 비면 자동 재장전.
+        const gun = cls.gun!;
+        if (p.shield || p.reload > 0) break;
+        if (a1 && p.attackTimer === 0) {
+          if (p.mag <= 0) { if (p.ammo > 0) p.reload = gun.reloadTicks; break; }
+          p.mag--;
+          p.attackTimer = gun.rof;
+          const crouching = (inp.buttons & BTN_DOWN) !== 0 && p.onGround;
+          const spread = crouching ? idiv(p.spread, gun.crouchDiv) : p.spread;
+          const baseAng = batan2(inp.cy, inp.cx || p.facing);
+          const ang = (baseAng + this.rng.range(-spread, spread)) & 4095;
+          const [ax, ay] = this.bowHand(p, { handY: gun.handY, handReach: gun.handReach } as NonNullable<ClassDef['bow']>, cx, cy);
+          this.projectiles.push({
+            id: this.nextProjId++, kind: ProjKind.Bullet, owner: p.id, team: p.team,
+            x: ax, y: ay, vx: idiv(bcos(ang) * gun.speed, 4096), vy: idiv(bsin(ang) * gun.speed, 4096),
+            timer: gun.life, damage: gun.damage, stuck: false,
+          });
+          p.spread = imin(gun.spreadMax, p.spread + gun.spreadPerShot);
+          p.animEvent++;
+          this.events.push({ kind: 'shoot', x: ax, y: ay, player: p.id, tile: 1 });
+          if (p.mag === 0 && p.ammo > 0) p.reload = gun.reloadTicks;
+        }
+        break;
+      }
+      case 'grenade':
       case 'bomb': {
         // 투척: 좌클릭을 누르고 있는 시간(게이지)에 따라 던지는 속도 = 거리. 놓으면 발사.
         if (a1 && p.bombs > 0 && p.attackTimer === 0) {
@@ -920,12 +979,12 @@ export class World {
   private dropResources(q: Player): void {
     const c = CLASSES[q.cls];
     const cx = q.x + (px(c.width) >> 1), cy = q.y + (px(c.height) >> 1);
-    const kinds: [number, number][] = [[DropKind.Wood, q.wood], [DropKind.Stone, q.stone], [DropKind.Gold, q.gold], [DropKind.Bombs, q.bombs], [DropKind.Arrows, q.arrows]];
+    const kinds: [number, number][] = [[DropKind.Wood, q.wood], [DropKind.Stone, q.stone], [DropKind.Gold, q.gold], [DropKind.Bombs, q.bombs], [DropKind.Arrows, q.arrows + q.ammo]];
     for (const [kind, amount] of kinds) {
       if (amount <= 0) continue;
       this.spawnDrop(kind, amount, cx, cy, this.rng.range(-700, 700), -this.rng.range(600, 1400));
     }
-    q.wood = 0; q.stone = 0; q.gold = 0; q.bombs = 0; q.arrows = 0;
+    q.wood = 0; q.stone = 0; q.gold = 0; q.bombs = 0; q.arrows = 0; q.ammo = 0; q.mag = 0;
   }
 
   private updateDrops(): void {
@@ -974,7 +1033,10 @@ export class World {
       case DropKind.Stone: { const n = imin(d.amount, 9999 - p.stone); p.stone += n; return n; }
       case DropKind.Gold: { const n = imin(d.amount, 9999 - p.gold); p.gold += n; return n; }
       case DropKind.Bombs: { if (!c.bombs) return 0; const n = imin(d.amount, c.bombs - p.bombs); p.bombs += n; return n; }
-      case DropKind.Arrows: { if (!c.bow) return 0; const n = imin(d.amount, c.bow.arrows - p.arrows); p.arrows += n; return n; }
+      case DropKind.Arrows: {
+        if (c.gun) { const n = imin(d.amount, c.gun.ammoMax - p.ammo); p.ammo += n; return n; }
+        if (!c.bow) return 0; const n = imin(d.amount, c.bow.arrows - p.arrows); p.arrows += n; return n;
+      }
     }
     return 0;
   }
@@ -1004,6 +1066,20 @@ export class World {
         continue;
       }
       if (pr.stuck) continue;
+      if (pr.kind === ProjKind.Bullet) {
+        pr.vy = imin(pr.vy + (CLASSES[0].gun?.gravity ?? 6), MAX_FALL);
+        const res = this.moveProjectile(pr, false, (x, y) => this.arrowHitPlayer(pr, x, y));
+        if (res === 'hitPlayer') { arr.splice(i, 1); i--; continue; }
+        if (res === 'tile') {
+          // 맞은 타일에 작은 피해 (흙 등 약한 타일만 서서히 깎임)
+          const tx = toTile(pr.x + isign(pr.vx) * 64), ty = toTile(pr.y + isign(pr.vy) * 64);
+          const t = this.map.get(tx, ty);
+          if (t !== T_AIR && TILE_TABLE[t].hp > 0 && TILE_TABLE[t].hp <= 8) { const destroyed = this.map.damage(tx, ty, CLASSES[0].gun?.tileDamage ?? 1); if (destroyed) this.yieldTile(null, TILE_TABLE[t], tx, ty); }
+          this.events.push({ kind: 'dig', x: pr.x, y: pr.y, tile: t });
+          arr.splice(i, 1); i--; continue;
+        }
+        continue;
+      }
       if (pr.kind === ProjKind.Arrow) {
         pr.vy = imin(pr.vy + (CLASSES[1].bow?.arrowGravity ?? 40), MAX_FALL);
         // 서브스텝 이동, 타일 충돌 시 박힘 / 각 서브스텝마다 플레이어 명중 검사 (터널링 방지)
