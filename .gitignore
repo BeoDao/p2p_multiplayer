@@ -2,4 +2,6 @@ node_modules
 dist
 push_to_github.cmd
 push_log.txt
+commit_msg.txt
 Claude outputs/
+NOTES.ko.md
