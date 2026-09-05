@@ -397,3 +397,48 @@ describe('map generation', () => {
     }
   });
 });
+
+describe('vehicles', () => {
+  it('spawns one cart per team, mounts with E, drives, climbs 1-tile steps, dismounts', () => {
+    const w = setup();
+    expect(w.vehicles.length).toBe(2);
+    const a = w.getPlayer(1)!;
+    a.state = PlayerState.Alive; a.hp = 8;
+    const v = w.vehicles.find((v) => v.team === a.team)!;
+    // 탈것 옆으로 이동해 E
+    a.x = v.x; a.y = v.y - px(14); a.vx = 0; a.vy = 0;
+    run(w, 2, {});
+    run(w, 1, { 1: { ...EMPTY_INPUT, buttons: BTN_USE } });
+    expect(a.vehicle).toBe(v.id);
+    expect(v.driver).toBe(a.id);
+    // 평평한 활주로를 만들고 1칸 계단 하나를 놓는다
+    run(w, 30, {}); // 착지
+    const startX = v.x;
+    const groundY = (v.y + px(8)) >> 11, x0 = v.x >> 11;
+    for (let x = x0 - 2; x < x0 + 40; x++) { for (let y = groundY - 6; y < groundY; y++) w.map.set(x, y, 0); w.map.set(x, groundY, 1); }
+    w.map.set(x0 + 12, groundY - 1, 1); w.map.set(x0 + 13, groundY - 1, 1);
+    run(w, 90, { 1: { ...EMPTY_INPUT, buttons: 2 /* BTN_RIGHT */ } });
+    expect(v.x).toBeGreaterThan(startX + px(100)); // 계단을 넘어 12.5칸 이상 전진
+    expect(v.y + px(8)).toBeLessThanOrEqual(groundY << 11);
+    expect(a.x).toBeGreaterThan(startX); // 운전자도 같이 이동
+    expect(a.hp).toBe(8);
+    // 내리기
+    run(w, 1, {});
+    run(w, 1, { 1: { ...EMPTY_INPUT, buttons: BTN_USE } });
+    expect(a.vehicle).toBe(0);
+    expect(v.driver).toBe(0);
+  });
+
+  it('vehicle takes arrow damage and respawns after destruction', () => {
+    const w = setup();
+    const v = w.vehicles.find((v) => v.team === 1)!;
+    const before = w.vehicles.length;
+    v.hp = 1;
+    w.projectiles.push({ id: 99, kind: 0, owner: 1, team: 0, x: v.x - px(4), y: v.y + px(4), vx: 600, vy: 0, timer: 100, damage: 2, stuck: false });
+    run(w, 3, {});
+    expect(w.vehicles.length).toBe(before - 1);
+    expect(w.vehicleRespawnAt[1]).toBeGreaterThan(0);
+    run(w, 901, {});
+    expect(w.vehicles.length).toBe(before);
+  });
+});

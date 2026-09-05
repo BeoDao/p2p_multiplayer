@@ -58,6 +58,8 @@ export const PART_PAINTERS: Record<string, { w: number; h: number; paint: Painte
   arrow: { w: 6, h: 1, paint: (c) => { rect(c, 0, 0, 5, 1, '#8a5a2b'); px(c, 5, 0, '#dfe4ea'); } },
   bomb: { w: 4, h: 4, paint: (c) => { rect(c, 0, 1, 3, 3, '#222'); px(c, 1, 1, '#444'); px(c, 3, 0, '#ffb000'); } },
   flag: { w: 6, h: 10, paint: (c) => { rect(c, 0, 0, 1, 10, '#6b4a2b'); rect(c, 1, 0, 5, 4, '#ffffff'); } },
+  cart_body: { w: 24, h: 8, paint: (c) => { rect(c, 1, 2, 22, 5, '#8a5a2b'); rect(c, 0, 1, 24, 1, '#a8763e'); rect(c, 2, 3, 20, 1, '#6b4a2b'); rect(c, 20, 0, 3, 2, '#5a3a1b'); rect(c, 1, 0, 3, 2, '#5a3a1b'); px(c, 4, 4, '#c8a060'); px(c, 19, 4, '#c8a060'); } },
+  wheel: { w: 8, h: 8, paint: (c) => { rect(c, 1, 0, 6, 8, '#3a3a40'); rect(c, 0, 1, 8, 6, '#3a3a40'); rect(c, 2, 2, 4, 4, '#8a5a2b'); rect(c, 3, 0, 2, 8, '#6b4a2b'); rect(c, 0, 3, 8, 2, '#6b4a2b'); px(c, 3, 3, '#ffd76a'); px(c, 4, 4, '#ffd76a'); } },
   particle: { w: 1, h: 1, paint: (c) => rect(c, 0, 0, 1, 1, '#ffffff') },
   edge_h: { w: 8, h: 1, paint: (c) => rect(c, 0, 0, 8, 1, '#1a1208') },
   edge_v: { w: 1, h: 8, paint: (c) => rect(c, 0, 0, 1, 8, '#1a1208') },

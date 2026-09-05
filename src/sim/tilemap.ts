@@ -247,6 +247,13 @@ export function generateMap(map: TileMap, rng: Rng): { spawnX: number[]; groundY
     if (x >= half - 3) y = ctrl[(half / step) | 0]; // 중앙 이음새 평탄화
     groundY[x] = y;
   }
+  // 1a. 열 사이 높이 차를 1칸 이하로 제한 (탈것이 오를 수 있는 경사; 더 큰 절벽은 동굴/호수/건설로만 생김)
+  for (let x = 25; x < half; x++) {
+    const prev = groundY[x - 1];
+    if (groundY[x] > prev + 1) groundY[x] = prev + 1;
+    else if (groundY[x] < prev - 1) groundY[x] = prev - 1;
+  }
+  for (let x = half - 3; x < half; x++) groundY[x] = groundY[half - 4]; // 중앙 이음새 평탄화 (거울 복사와 이어짐)
   // 1b. 1칸짜리 돌기/구덩이 제거: 양쪽 이웃보다 혼자 높거나 낮은 열은 이웃 높이에 맞춘다 (2회 반복)
   for (let pass = 0; pass < 2; pass++) {
     for (let x = 25; x < half - 3; x++) {
@@ -336,10 +343,13 @@ export function generateMap(map: TileMap, rng: Rng): { spawnX: number[]; groundY
   }
   // 8. 중앙 호수: 이음새 주변을 파내고 물로 채움 (양쪽 대칭)
   const lakeHalf = 9, lakeDepth = 4;
-  const lakeY = groundY[half];
+  // 수면 = 호숫가(양 끝 열) 지면 높이. 그 위로 솟은 땅은 깎아내 물이 새지 않는 분지를 만든다
+  const lakeY = Math.max(groundY[half - lakeHalf], groundY[half + lakeHalf]);
   for (let x = half - lakeHalf; x <= half + lakeHalf; x++) {
     const edge = lakeHalf - Math.abs(x - half);
     const depth = edge >= 3 ? lakeDepth : edge; // 가장자리는 얕게
+    for (let y = groundY[x]; y < lakeY; y++) if (map.get(x, y) !== T_BEDROCK) { map.set(x, y, T_AIR); map.setBack(x, y, T_AIR); }
+    if (groundY[x] < lakeY) { groundY[x] = lakeY; map.set(x, lakeY, T_GRASS); }
     for (let k = 0; k < depth; k++) {
       const y = lakeY + k;
       if (map.get(x, y) !== T_BEDROCK) { map.set(x, y, T_AIR); map.setBack(x, y, T_DIRT_BACK); map.water[y * w + x] = WATER_MAX; }

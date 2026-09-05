@@ -3,5 +3,6 @@ dist
 push_to_github.cmd
 push_log.txt
 commit_msg.txt
+start_dev.cmd
 Claude outputs/
 NOTES.ko.md

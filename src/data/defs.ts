@@ -5,6 +5,7 @@
 import tilesJson from './tiles.json';
 import classesJson from './classes.json';
 import itemsJson from './items.json';
+import vehiclesJson from './vehicles.json';
 
 export type ResourceKind = 'wood' | 'stone' | 'gold';
 export const RESOURCE_KINDS: ResourceKind[] = ['wood', 'stone', 'gold'];
@@ -94,6 +95,20 @@ export const T_LADDER = tileId('ladder');
 export const T_DIRT_BACK = tileId('dirt_back');
 
 export const CLASSES: ClassDef[] = (classesJson as { classes: ClassDef[] }).classes;
+
+export interface VehicleDef {
+  id: number;
+  name: string;
+  label: string;
+  labels?: Record<string, string>;
+  width: number; height: number; wheelBase: number; wheelRadius: number;
+  seatX: number; seatY: number;
+  hp: number; accel: number; maxSpeed: number; friction: number;
+  ramDamage: number; ramSpeed: number; ramKnockback: number;
+  respawnTicks: number;
+  spawnOffset: number;
+}
+export const VEHICLES: VehicleDef[] = (vehiclesJson as { vehicles: VehicleDef[] }).vehicles;
 export const CLASS_BY_NAME = new Map<string, ClassDef>(CLASSES.map((c) => [c.name, c]));
 
 export const ITEMS: ItemDef[] = (itemsJson as { items: ItemDef[] }).items;

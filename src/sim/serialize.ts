@@ -4,7 +4,7 @@
  */
 import { World } from './world';
 import { TileMap } from './tilemap';
-import { PlayerState, ProjKind, type Player, type Projectile, type Flag, type Drop } from './types';
+import { PlayerState, ProjKind, type Player, type Projectile, type Flag, type Drop, type Vehicle } from './types';
 import { EMPTY_INPUT } from './input';
 import { Rng, fnv1a } from './rng';
 
@@ -66,7 +66,7 @@ function writePlayer(w: Writer, p: Player): void {
   w.i32(p.bombs); w.i32(p.arrows); w.i32(p.wood); w.i32(p.stone); w.i32(p.gold);
   w.i32(p.carryingFlag); w.i32(p.kills); w.i32(p.deaths);
   w.u8(p.lastInput.buttons); w.i32(p.lastInput.cx); w.i32(p.lastInput.cy); w.u8(p.lastInput.slot); w.u8(p.lastInput.cls);
-  w.i32(p.hurtTimer); w.i32(p.animEvent); w.u8(p.digMode); w.u8(p.digCheat);
+  w.i32(p.hurtTimer); w.i32(p.animEvent); w.u8(p.digMode); w.u8(p.digCheat); w.i32(p.vehicle);
 }
 function readPlayer(r: Reader): Player {
   return {
@@ -77,7 +77,7 @@ function readPlayer(r: Reader): Player {
     bombs: r.i32(), arrows: r.i32(), wood: r.i32(), stone: r.i32(), gold: r.i32(),
     carryingFlag: r.i32(), kills: r.i32(), deaths: r.i32(),
     lastInput: { buttons: r.u8(), cx: r.i32(), cy: r.i32(), slot: r.u8(), cls: r.u8() },
-    hurtTimer: r.i32(), animEvent: r.i32(), digMode: r.u8(), digCheat: r.u8(),
+    hurtTimer: r.i32(), animEvent: r.i32(), digMode: r.u8(), digCheat: r.u8(), vehicle: r.i32(),
   };
 }
 function writeProj(w: Writer, p: Projectile): void {
@@ -98,6 +98,13 @@ function writeDrop(w: Writer, d: Drop): void {
 }
 function readDrop(r: Reader): Drop {
   return { id: r.i32(), kind: r.u8(), amount: r.i32(), x: r.i32(), y: r.i32(), vx: r.i32(), vy: r.i32(), life: r.i32() };
+}
+function writeVehicle(w: Writer, v: Vehicle): void {
+  w.i32(v.id); w.u8(v.kind); w.u8(v.team); w.i32(v.x); w.i32(v.y); w.i32(v.vx); w.i32(v.vy); w.bool(v.onGround);
+  w.i32(v.angle); w.i32(v.hp); w.i32(v.driver); w.i32(v.facing); w.i32(v.ramTimer); w.i32(v.odo);
+}
+function readVehicle(r: Reader): Vehicle {
+  return { id: r.i32(), kind: r.u8(), team: r.u8(), x: r.i32(), y: r.i32(), vx: r.i32(), vy: r.i32(), onGround: r.bool(), angle: r.i32(), hp: r.i32(), driver: r.i32(), facing: r.i32(), ramTimer: r.i32(), odo: r.i32() };
 }
 function readFlag(r: Reader): Flag {
   return { team: r.u8(), homeX: r.i32(), homeY: r.i32(), x: r.i32(), y: r.i32(), carrier: r.i32(), atHome: r.bool(), returnTimer: r.i32() };
@@ -124,6 +131,9 @@ export function serializeWorld(world: World): Uint8Array {
   w.i32(world.drops.length);
   for (const d of world.drops) writeDrop(w, d);
   w.i32(world.nextDropId);
+  w.i32(world.vehicles.length);
+  for (const v of world.vehicles) writeVehicle(w, v);
+  w.i32(world.nextVehicleId); w.i32(world.vehicleRespawnAt[0]); w.i32(world.vehicleRespawnAt[1]);
   return w.done();
 }
 
@@ -167,6 +177,10 @@ export function deserializeWorld(buf: Uint8Array): World {
   const nd = r.i32();
   for (let i = 0; i < nd; i++) world.drops.push(readDrop(r));
   world.nextDropId = r.i32();
+  world.vehicles = [];
+  const nv = r.i32();
+  for (let i = 0; i < nv; i++) world.vehicles.push(readVehicle(r));
+  world.nextVehicleId = r.i32(); world.vehicleRespawnAt = [r.i32(), r.i32()];
   world.events = [];
   return world;
 }

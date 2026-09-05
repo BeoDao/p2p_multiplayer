@@ -238,7 +238,8 @@ async function main(): Promise<void> {
     } else if (attached && !world) attached = false;
     hud.showBoard = input.key('Tab');
     if (world) { const lp = world.getPlayer(session.pid); if (lp) { sound.listenerX = lp.x / FP_ONE; sound.listenerY = lp.y / FP_ONE; } }
-    hud.update(session.phase === 'playing' ? world : null, session.pid, st, inBase);
+    const lp = world && session.phase === 'playing' ? world.getPlayer(session.pid) : undefined;
+    hud.update(session.phase === 'playing' ? world : null, session.pid, st, inBase, lp ? world!.canMount(lp) : false);
   });
 }
 

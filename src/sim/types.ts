@@ -43,6 +43,7 @@ export interface Player {
   hurtTimer: number; // 피격 무적/연출
   animEvent: number; // 렌더러용 이벤트 카운터(공격 시작 등) — 상태의 일부이므로 결정론적
   digCheat: number; // [DEV] 1 이면 타일 즉사 (CHEATS_ENABLED)
+  vehicle: number; // 타고 있는 탈것 id 또는 0
   digMode: number; // 곡괭이 홀드 모드: 0 없음, 1 앞 타일, 2 뒷벽 (누른 순간 결정, 실수로 뒷벽까지 파지 않게)
 }
 
@@ -72,6 +73,21 @@ export interface Drop {
   life: number; // 남은 틱
 }
 
+/** 탈것 (정수 결정론). x,y = 차체 AABB 좌상단(FP). angle = 바퀴 지면 높이 차로 구한 기울기(BAM) */
+export interface Vehicle {
+  id: number;
+  kind: number; // vehicles.json id
+  team: number;
+  x: number; y: number; vx: number; vy: number;
+  onGround: boolean;
+  angle: number;
+  hp: number;
+  driver: number; // 플레이어 id 또는 0
+  facing: number; // -1 | 1
+  ramTimer: number; // 들이받기 쿨다운
+  odo: number; // 누적 이동(FP) — 바퀴 회전 연출용
+}
+
 export interface Flag {
   team: number;
   homeX: number; homeY: number; // 타일 좌표
@@ -82,7 +98,7 @@ export interface Flag {
 }
 
 export interface WorldEvent {
-  kind: 'hit' | 'die' | 'explode' | 'dig' | 'build' | 'capture' | 'shoot' | 'slash' | 'pickup' | 'buy' | 'jump' | 'loot';
+  kind: 'hit' | 'die' | 'explode' | 'dig' | 'build' | 'capture' | 'shoot' | 'slash' | 'pickup' | 'buy' | 'jump' | 'loot' | 'mount' | 'vhit';
   x: number; y: number; // FP
   player?: number;
   team?: number;

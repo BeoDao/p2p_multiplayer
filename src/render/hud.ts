@@ -222,7 +222,7 @@ export class Hud {
     this.logEl.innerHTML = this.log.map((l) => `<div>${escapeHtml(l)}</div>`).join('');
   }
 
-  update(world: World | null, localPid: number, st: SessionStatus, inBase: boolean): void {
+  update(world: World | null, localPid: number, st: SessionStatus, inBase: boolean, canMount = false): void {
     const p = world?.getPlayer(localPid);
     const statusKey = `${st.phase}|${st.pid}|${st.members}|${st.coordinator}|${st.stalledMs > 1000}|${st.desyncs}|${st.message}`;
     if (statusKey !== this.lastStatusKey) {
@@ -244,7 +244,7 @@ export class Hud {
     }
     const score = `${world.score[0]}:${world.score[1]}`;
     const key = p
-      ? `${score}|${p.cls}|${p.hp}|${p.wood}|${p.stone}|${p.gold}|${p.slot}|${p.bombs}|${p.arrows}|${p.state}|${p.respawnAt - world.tick}|${inBase}|${world.roundOverAt}|${p.kills}|${p.deaths}|${p.carryingFlag}`
+      ? `${score}|${p.cls}|${p.hp}|${p.wood}|${p.stone}|${p.gold}|${p.slot}|${p.bombs}|${p.arrows}|${p.state}|${p.respawnAt - world.tick}|${inBase}|${world.roundOverAt}|${p.kills}|${p.deaths}|${p.carryingFlag}|${canMount}|${p.vehicle}`
       : `${score}|none`;
     if (key === this.lastKey) return;
     this.lastKey = key;
@@ -273,6 +273,10 @@ export class Hud {
     } else if (p && p.state === PlayerState.Dead) {
       const s = Math.max(0, Math.ceil((p.respawnAt - world.tick) / 30));
       centerHtml = `<div class="big">${t('dead')}</div><div>${t('respawnIn', { s })}</div>`;
+    } else if (p && p.vehicle) {
+      centerHtml = `<div class="hint">${t('dismountHint')}</div>`;
+    } else if (p && canMount) {
+      centerHtml = `<div class="hint">${t('mountHint')}</div>`;
     } else if (p && inBase) {
       centerHtml = `<div class="hint">${t('baseHint')}</div>`;
     }

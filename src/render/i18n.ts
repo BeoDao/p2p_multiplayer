@@ -30,6 +30,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     synced: 'Synced (tick {tick})', left: '{name} left', waitingFor: 'Waiting ({s}s)...', desyncDetected: 'Desync detected → resyncing',
     flagTaken: '🚩 {name} took the flag!', died: '{name} died', unknownCmd: 'Unknown command: {cmd}',
     connTitle: 'Connecting', connRoom: 'Room code', connDiscover: 'Looking for players in this room', connDiscoverHint: 'If nobody is here within {s}s, you will host the match and others can join anytime.', connJoining: 'Joining the match', connJoiningHint: 'Receiving the world from another player…', connResync: 'Resynchronizing', connRelays: 'Signaling relays', connPeers: 'Peers found', connShare: 'Share this link with friends', copy: 'Copy', copied: 'Copied!', connOffline: 'Starting offline practice',
+    mountHint: '{E} Ride the cart', dismountHint: '{A}{D} drive · {E} get off',
   },
   ja: {
     subtitle: 'ホスト不要のP2P · 決定論的ロックステップ · 2Dスケルタル',
@@ -52,6 +53,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     synced: '同期完了（ティック {tick}）', left: '{name} が退出しました', waitingFor: '待機中（{s}秒）...', desyncDetected: '同期ずれを検出 → 再同期',
     flagTaken: '🚩 {name} が旗を取った！', died: '{name} が死亡', unknownCmd: '不明なコマンド: {cmd}',
     connTitle: '接続中', connRoom: 'ルームコード', connDiscover: 'このルームのプレイヤーを探しています', connDiscoverHint: '{s}秒以内に誰もいなければ、あなたがホストとなり、他の人はいつでも参加できます。', connJoining: '試合に参加中', connJoiningHint: '他のプレイヤーからワールドを受信しています…', connResync: '再同期中', connRelays: 'シグナリングリレー', connPeers: '見つかったピア', connShare: 'このリンクを友達に共有', copy: 'コピー', copied: 'コピーしました', connOffline: 'オフライン練習を開始',
+    mountHint: '{E} 荷車に乗る', dismountHint: '{A}{D} 運転 · {E} 降りる',
   },
   ru: {
     subtitle: 'P2P без хоста · Детерминированный lockstep · 2D скелетная анимация',
@@ -74,6 +76,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     synced: 'Синхронизировано (тик {tick})', left: '{name} вышел', waitingFor: 'Ожидание ({s} с)...', desyncDetected: 'Рассинхрон → ресинхронизация',
     flagTaken: '🚩 {name} взял флаг!', died: '{name} погиб', unknownCmd: 'Неизвестная команда: {cmd}',
     connTitle: 'Подключение', connRoom: 'Код комнаты', connDiscover: 'Ищем игроков в этой комнате', connDiscoverHint: 'Если за {s} с никто не найдётся, вы станете хостом, а другие смогут присоединиться в любой момент.', connJoining: 'Подключение к матчу', connJoiningHint: 'Получаем мир от другого игрока…', connResync: 'Ресинхронизация', connRelays: 'Сигнальные релеи', connPeers: 'Найдено пиров', connShare: 'Поделитесь ссылкой с друзьями', copy: 'Копировать', copied: 'Скопировано!', connOffline: 'Запуск офлайн-тренировки',
+    mountHint: '{E} Сесть в повозку', dismountHint: '{A}{D} ехать · {E} слезть',
   },
   zh: {
     subtitle: '无主机 P2P · 确定性锁步 · 2D 骨骼动画',
@@ -96,6 +99,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     synced: '已同步（刻 {tick}）', left: '{name} 离开了', waitingFor: '等待中（{s} 秒）...', desyncDetected: '检测到失步 → 重新同步',
     flagTaken: '🚩 {name} 夺取了旗帜！', died: '{name} 阵亡', unknownCmd: '未知命令：{cmd}',
     connTitle: '连接中', connRoom: '房间代码', connDiscover: '正在寻找此房间的玩家', connDiscoverHint: '若 {s} 秒内无人，你将成为主机，其他人可随时加入。', connJoining: '正在加入对局', connJoiningHint: '正在从其他玩家接收世界…', connResync: '重新同步中', connRelays: '信令中继', connPeers: '已发现的节点', connShare: '把此链接分享给朋友', copy: '复制', copied: '已复制！', connOffline: '正在开始离线练习',
+    mountHint: '{E} 乘坐推车', dismountHint: '{A}{D} 驾驶 · {E} 下车',
   },
   ar: {
     subtitle: 'P2P بدون مضيف · مزامنة حتمية · حركة هيكلية ثنائية الأبعاد',
@@ -118,6 +122,7 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     synced: 'تمت المزامنة (نبضة {tick})', left: 'غادر {name}', waitingFor: 'انتظار ({s} ث)...', desyncDetected: 'اكتُشف عدم تزامن → إعادة المزامنة',
     flagTaken: '🚩 أخذ {name} العلم!', died: 'مات {name}', unknownCmd: 'أمر غير معروف: {cmd}',
     connTitle: 'جارٍ الاتصال', connRoom: 'رمز الغرفة', connDiscover: 'نبحث عن لاعبين في هذه الغرفة', connDiscoverHint: 'إذا لم يوجد أحد خلال {s} ث، ستستضيف المباراة ويمكن للآخرين الانضمام في أي وقت.', connJoining: 'الانضمام إلى المباراة', connJoiningHint: 'جارٍ استلام العالم من لاعب آخر…', connResync: 'إعادة المزامنة', connRelays: 'مرحّلات الإشارة', connPeers: 'الأقران الموجودون', connShare: 'شارك هذا الرابط مع أصدقائك', copy: 'نسخ', copied: 'تم النسخ!', connOffline: 'بدء التدريب دون اتصال',
+    mountHint: '{E} اركب العربة', dismountHint: '{A}{D} قيادة · {E} نزول',
   },
 };
 

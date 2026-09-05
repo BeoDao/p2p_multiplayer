@@ -1,0 +1,14 @@
+{
+  "_comment": "탈것 정의. 수치는 px 또는 FP(속도/가속: 1px=256/틱). 차체는 AABB(width×height) 로 충돌하고, 바퀴 위치의 지면 높이 차로 기울기(각도)를 구한다. 1칸(8px) 계단은 자동으로 오른다. seatX/seatY: 운전자 위치(차체 중심 기준 px). respawnTicks: 파괴 후 기지 재생성까지.",
+  "vehicles": [
+    {
+      "id": 0, "name": "cart", "label": "Cart", "labels": { "ja": "荷車", "ru": "Повозка", "zh": "推车", "ar": "عربة" },
+      "width": 24, "height": 8, "wheelBase": 16, "wheelRadius": 4,
+      "seatX": 0, "seatY": -9,
+      "hp": 40, "accel": 45, "maxSpeed": 1000, "friction": 25,
+      "ramDamage": 2, "ramSpeed": 600, "ramKnockback": 900,
+      "respawnTicks": 900,
+      "spawnOffset": -7
+    }
+  ]
+}

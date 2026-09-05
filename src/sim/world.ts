@@ -6,6 +6,7 @@ import {
   FP_ONE, TILE_FP, TILE_SHIFT, px, toTile, clamp, iabs, isign, imin, imax, vnorm, vlen, aabbOverlap, idiv,
 } from './fixed';
 import { Rng } from './rng';
+import { spawnVehicle, handleMount, updateRider, updateVehicles, dismount, damageVehicle, vehicleDef, nearestMountable } from './vehicle';
 import { TileMap, NO_TEAM, WATER_MAX, generateMap } from './tilemap';
 import {
   CLASSES, TILE_TABLE, T_AIR, T_TRUNK, hotbarItem, tileId, RESOURCE_KINDS, type ClassDef, type ResourceKind, type TileDef,
@@ -14,7 +15,7 @@ import {
   BTN_LEFT, BTN_RIGHT, BTN_UP, BTN_DOWN, BTN_JUMP, BTN_ACTION1, BTN_ACTION2, BTN_USE, EMPTY_INPUT, type Input,
 } from './input';
 import {
-  PlayerState, ProjKind, type Player, type Projectile, type Flag, type Drop, DropKind, type WorldEvent, TEAM_BLUE, TEAM_RED,
+  PlayerState, ProjKind, type Player, type Projectile, type Flag, type Drop, DropKind, type Vehicle, type WorldEvent, TEAM_BLUE, TEAM_RED,
 } from './types';
 
 export interface JoinEvent { pid: number; name: string; team: number }
@@ -60,6 +61,9 @@ export class World {
   flags: Flag[] = [];
   drops: Drop[] = [];
   nextDropId = 1;
+  vehicles: Vehicle[] = [];
+  nextVehicleId = 1;
+  vehicleRespawnAt: number[] = [0, 0];
   score: Int32Array = new Int32Array(2);
   nextPlayerId = 1;
   nextProjId = 1;
@@ -92,6 +96,10 @@ export class World {
       };
       return f;
     });
+    this.vehicles = [];
+    this.vehicleRespawnAt = [0, 0];
+    spawnVehicle(this, TEAM_BLUE);
+    spawnVehicle(this, TEAM_RED);
   }
 
   // ---------- 플레이어 관리 ----------
@@ -123,7 +131,7 @@ export class World {
       x: 0, y: 0, vx: 0, vy: 0, onGround: false, onLadder: false, inWater: false, breath: BREATH_TICKS, facing: team === TEAM_BLUE ? 1 : -1,
       aimX: 0, aimY: 0, hp: 0, slot: 0, attackTimer: 0, attackWindup: 0, charge: 0, shield: false,
       bombs: 0, arrows: 0, wood: 0, stone: 0, gold: 0, carryingFlag: -1, kills: 0, deaths: 0,
-      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0,
+      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0, vehicle: 0,
     };
     // 정렬 삽입
     let i = this.players.length;
@@ -180,6 +188,8 @@ export class World {
     }
     // 3b. 플레이어끼리 밀치기 (겹치면 서로 반대로 살짝 밀림)
     this.separatePlayers();
+    // 3c. 탈것
+    updateVehicles(this);
     // 4. 투사체
     this.updateProjectiles();
     // 5. 깃발 / 드롭
@@ -197,12 +207,12 @@ export class World {
     const ps = this.players;
     for (let i = 0; i < ps.length; i++) {
       const a = ps[i];
-      if (a.state !== PlayerState.Alive) continue;
+      if (a.state !== PlayerState.Alive || a.vehicle) continue;
       const ca = CLASSES[a.cls];
       const aw = px(ca.width), ah = px(ca.height);
       for (let j = i + 1; j < ps.length; j++) {
         const b = ps[j];
-        if (b.state !== PlayerState.Alive) continue;
+        if (b.state !== PlayerState.Alive || b.vehicle) continue;
         const cb = CLASSES[b.cls];
         const bw = px(cb.width), bh = px(cb.height);
         if (!aabbOverlap(a.x, a.y, aw, ah, b.x, b.y, bw, bh)) continue;
@@ -309,6 +319,7 @@ export class World {
       p.respawnAt = this.tick;
       p.wood = 0; p.stone = 0; p.gold = 0;
       p.carryingFlag = -1;
+      p.vehicle = 0;
     }
   }
 
@@ -325,6 +336,9 @@ export class World {
     if (CHEATS_ENABLED && inp.cheat === 2 && p.lastInput.cheat !== 2) { p.digCheat = p.digCheat ? 0 : 1; this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id }); }
     if (CHEATS_ENABLED && inp.cheat === 3 && p.lastInput.cheat !== 3) { p.hp = cls.hp; this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id }); }
     if (CHEATS_ENABLED && inp.cheat === 1 && p.lastInput.cheat !== 1) { p.wood = imin(p.wood + 1000, 9999); p.stone = imin(p.stone + 1000, 9999); p.gold = imin(p.gold + 1000, 9999); this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id }); }
+    // 탈것 타기/내리기 (E), 운전 중이면 탈것이 위치를 결정한다
+    handleMount(this, p, inp);
+    if (p.vehicle) { updateRider(this, p, inp); return; }
     if (p.hurtTimer > 0) p.hurtTimer--;
     if (p.attackTimer > 0) p.attackTimer--;
 
@@ -488,6 +502,11 @@ export class World {
     // 정지 상태 접지 검사
     if (!p.onGround && p.vy >= 0 && this.collides(p.x, p.y + 1, w, h, p.team)) p.onGround = true;
   }
+
+  /** 탈것 등 외부 모듈용 공개 충돌 검사 */
+  collidesAt(x: number, y: number, w: number, h: number, team: number): boolean { return this.collides(x, y, w, h, team); }
+  /** 근처에 탈 수 있는 탈것이 있는가 (HUD 힌트) */
+  canMount(p: Player): boolean { return p.state === PlayerState.Alive && !p.vehicle && nearestMountable(this, p) !== undefined; }
 
   private collides(x: number, y: number, w: number, h: number, team: number): boolean {
     const x0 = toTile(x), x1 = toTile(x + w - 1);
@@ -773,7 +792,7 @@ export class World {
     }
   }
 
-  private hurt(q: Player, damage: number, byPid: number, kx: number, ky: number): void {
+  hurt(q: Player, damage: number, byPid: number, kx: number, ky: number): void {
     if (q.state !== PlayerState.Alive) return;
     q.hp -= damage;
     q.vx += kx; q.vy += ky;
@@ -790,6 +809,7 @@ export class World {
     q.hp = 0;
     const killer = byPid ? this.getPlayer(byPid) : undefined;
     if (killer && killer !== q) killer.kills++;
+    if (q.vehicle) dismount(this, q, 0);
     this.dropFlag(q);
     this.dropResources(q);
     this.events.push({ kind: 'die', x: q.x, y: q.y, player: q.id, team: q.team, by: byPid });
@@ -910,6 +930,13 @@ export class World {
       this.hurt(q, pr.damage, pr.owner, isign(pr.vx) * 300, -200);
       return true;
     }
+    for (const v of this.vehicles) {
+      if (v.team === pr.team) continue;
+      const d = vehicleDef(v);
+      if (!aabbOverlap(x - 128, y - 128, 256, 256, v.x, v.y, px(d.width), px(d.height))) continue;
+      damageVehicle(this, v, pr.damage, pr.owner);
+      return true;
+    }
     return false;
   }
 
@@ -957,6 +984,12 @@ export class World {
         this.hurt(q, dmg, pr.owner, kx, ky - 400);
       }
     }
+    for (const v of this.vehicles) {
+      const d = vehicleDef(v);
+      const vx = v.x + (px(d.width) >> 1), vy = v.y + (px(d.height) >> 1);
+      const dist = vlen(vx - pr.x, vy - pr.y);
+      if (dist < radius && this.lineClear(NO_TEAM, pr.x, pr.y, vx, vy)) damageVehicle(this, v, imax(1, (pr.damage * 3 - idiv(pr.damage * 3 * dist, radius))), pr.owner);
+    }
     // 타일 파괴 (원형)
     const tr = (radius >> TILE_SHIFT) + 1;
     const cx = toTile(pr.x), cy = toTile(pr.y);
@@ -998,7 +1031,7 @@ export class World {
     }
   }
 
-  private dropFlag(p: Player): void {
+  dropFlag(p: Player): void {
     if (p.carryingFlag < 0) return;
     const f = this.flags[p.carryingFlag];
     f.carrier = 0;

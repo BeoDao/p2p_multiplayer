@@ -7,14 +7,19 @@
 import { Application, Container, Sprite, Graphics, RenderTexture, Text, type Texture } from 'pixi.js';
 import { tileId } from '../data/defs';
 import { World } from '../sim/world';
-import { PlayerState, ProjKind, type Player, type WorldEvent } from '../sim/types';
-import { CLASSES, TILE_TABLE, hotbarItem, T_AIR } from '../data/defs';
+import { PlayerState, ProjKind, type Player, type Vehicle, type WorldEvent } from '../sim/types';
+import { VEHICLES, CLASSES, TILE_TABLE, hotbarItem, T_AIR } from '../data/defs';
 import { FP_ONE, TILE_PX } from '../sim/fixed';
 import { Skeleton, TEAM_COLORS } from './skeleton';
 import { TextureRegistry } from './textures';
 
 const CHUNK = 32;
 const ZOOM_DEFAULT = 3;
+
+interface VehicleView {
+  root: Container; body: Sprite; wheels: Sprite[]; hp: Graphics;
+  prevX: number; prevY: number; curX: number; curY: number; prevAng: number; curAng: number;
+}
 
 interface PlayerView {
   skel: Skeleton;
@@ -46,6 +51,7 @@ export class Renderer {
   private chunksX = 0; private chunksY = 0;
   private players = new Map<number, PlayerView>();
   private projSprites = new Map<number, Sprite>();
+  private vehicleViews = new Map<number, VehicleView>();
   private flagSprites: Sprite[] = [];
   private dropSprites = new Map<number, Sprite>();
   private particles: Particle[] = [];
@@ -90,6 +96,8 @@ export class Renderer {
     this.players.clear();
     for (const s of this.projSprites.values()) s.destroy();
     this.projSprites.clear();
+    for (const v of this.vehicleViews.values()) v.root.destroy({ children: true });
+    this.vehicleViews.clear();
     for (const f of this.flagSprites) f.destroy();
     this.flagSprites = [];
     for (const d of this.dropSprites.values()) d.destroy();
@@ -179,6 +187,33 @@ export class Renderer {
     for (let i = 0; i < this.chunks.length; i++) if (this.chunks[i].dirty) this.rebuildChunk(world, i);
   }
 
+  // ---------- 탈것 ----------
+  private getVehicleView(veh: Vehicle): VehicleView {
+    let v = this.vehicleViews.get(veh.id);
+    if (v) return v;
+    const def = VEHICLES[veh.kind];
+    const root = new Container();
+    root.zIndex = 8;
+    const body = new Sprite(this.tex.part('cart_body'));
+    body.anchor.set(0.5, 0.5);
+    body.tint = veh.team === 0 ? 0xb9c8ff : 0xffb9b9;
+    const wheels: Sprite[] = [];
+    for (const sx of [-1, 1]) {
+      const wsp = new Sprite(this.tex.part('wheel'));
+      wsp.anchor.set(0.5, 0.5);
+      wsp.position.set(sx * def.wheelBase / 2, def.height / 2 - 1);
+      wheels.push(wsp);
+      root.addChild(wsp);
+    }
+    root.addChild(body);
+    const hp = new Graphics();
+    root.addChild(hp);
+    this.entityLayer.addChild(root);
+    v = { root, body, wheels, hp, prevX: veh.x, prevY: veh.y, curX: veh.x, curY: veh.y, prevAng: veh.angle, curAng: veh.angle };
+    this.vehicleViews.set(veh.id, v);
+    return v;
+  }
+
   // ---------- 플레이어 ----------
   private getPlayerView(p: Player): PlayerView {
     let v = this.players.get(p.id);
@@ -242,7 +277,8 @@ export class Renderer {
     skel.facing = p.facing;
     const moving = Math.abs(p.vx) > 40;
     let clip = 'idle';
-    if (p.onLadder && !p.onGround) clip = 'climb';
+    if (p.vehicle) clip = 'idle';
+    else if (p.onLadder && !p.onGround) clip = 'climb';
     else if (!p.onGround) clip = p.vy < 0 ? 'jump' : 'fall';
     else if (p.shield) clip = 'shield';
     else if (moving) clip = 'run';
@@ -302,6 +338,8 @@ export class Renderer {
         case 'explode': this.spawnParticles(x, y, 40, 0xffa020, 4, 25); this.spawnParticles(x, y, 20, 0x404040, 2, 40); this.addShake(x, y, 6); break;
         case 'dig': { const def = e.tile !== undefined ? TILE_TABLE[e.tile] : undefined; this.spawnParticles(x, y, 5, def?.name === 'stone' || def?.name === 'gold_ore' ? 0x909090 : 0x7a5230, 1.2, 15); break; }
         case 'build': this.spawnParticles(x, y, 4, 0xffffff, 0.8, 10); break;
+        case 'mount': this.spawnParticles(x + 3, y + 7, 6, 0xffffff, 1, 10); break;
+        case 'vhit': this.spawnParticles(x, y, 6, 0xc0a060, 1.5, 12); if (e.tile) this.floatText(x, y - 6, `-${e.tile}`, 0xffc040); break;
         case 'loot': this.spawnParticles(x, y, 6, DROP_COLORS[e.tile ?? 0] ?? 0xa8763e, 1, 12); if (e.by) this.floatText(x, y - 3, `+${e.by}${DROP_ICONS[e.tile ?? 0] ?? ''}`, DROP_COLORS[e.tile ?? 0] ?? 0xffffff); break;
         case 'capture': this.spawnParticles(x + 3, y, 30, e.team === 0 ? 0x4a7bff : 0xff4a4a, 3, 40); break;
         default: break;
@@ -349,12 +387,38 @@ export class Renderer {
         // 리스폰/텔레포트: 거리가 크면 스냅
         if (Math.abs(v.curX - v.prevX) > 20 * FP_ONE || Math.abs(v.curY - v.prevY) > 20 * FP_ONE) { v.prevX = v.curX; v.prevY = v.curY; }
       }
+      for (const veh of world.vehicles) {
+        const v = this.getVehicleView(veh);
+        if (jumped) { v.prevX = veh.x; v.prevY = veh.y; v.prevAng = veh.angle; } else { v.prevX = v.curX; v.prevY = v.curY; v.prevAng = v.curAng; }
+        v.curX = veh.x; v.curY = veh.y; v.curAng = veh.angle;
+        if (Math.abs(v.curX - v.prevX) > 20 * FP_ONE || Math.abs(v.curY - v.prevY) > 20 * FP_ONE) { v.prevX = v.curX; v.prevY = v.curY; }
+      }
       this.handleEvents(world.events);
       this.lastTick = world.tick;
     }
     // 사라진 플레이어 뷰 정리
     for (const [pid, v] of this.players) if (!world.getPlayer(pid)) { v.skel.root.destroy(); v.name.destroy(); v.hp.destroy(); this.players.delete(pid); }
     for (const p of world.players) this.updatePlayer(world, p, this.getPlayerView(p), alpha, dtTicks, p.id === localPid);
+
+    // 탈것
+    const seenVeh = new Set<number>();
+    for (const veh of world.vehicles) {
+      seenVeh.add(veh.id);
+      const v = this.getVehicleView(veh);
+      const def = VEHICLES[veh.kind];
+      const x = (v.prevX + (v.curX - v.prevX) * alpha) / FP_ONE + def.width / 2;
+      const y = (v.prevY + (v.curY - v.prevY) * alpha) / FP_ONE + def.height / 2;
+      let da = v.curAng - v.prevAng; if (da > 2048) da -= 4096; else if (da < -2048) da += 4096;
+      const ang = (v.prevAng + da * alpha) * (Math.PI * 2 / 4096);
+      v.root.position.set(x, y);
+      v.root.rotation = ang;
+      v.body.scale.x = veh.facing;
+      const spin = veh.odo / FP_ONE / def.wheelRadius;
+      for (const wsp of v.wheels) wsp.rotation = spin;
+      v.hp.clear();
+      if (veh.hp < def.hp) { v.hp.rect(-8, -def.height / 2 - 4, 16, 1.5).fill({ color: 0x000000, alpha: 0.6 }); v.hp.rect(-8, -def.height / 2 - 4, 16 * veh.hp / def.hp, 1.5).fill({ color: veh.team === 0 ? 0x4a7bff : 0xff4a4a }); }
+    }
+    for (const [id, v] of this.vehicleViews) if (!seenVeh.has(id)) { v.root.destroy({ children: true }); this.vehicleViews.delete(id); }
 
     // 투사체
     const seen = new Set<number>();
