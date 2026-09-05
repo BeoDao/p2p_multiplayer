@@ -4,7 +4,7 @@
  *  - back(backType/backHp): 뒷벽. 자연 지형(흙/돌)을 파면 dirt_back 이 남고, 앞 타일 설치의 지지대가 된다.
  * 파괴/건설은 모두 여기서 처리. 변경된 타일은 dirty 목록에 기록되어 렌더러가 청크를 갱신한다.
  */
-import { TILE_TABLE, T_AIR, T_BEDROCK, T_DIRT, T_GRASS, T_STONE, T_GOLD, T_TRUNK, T_LEAF, T_DIRT_BACK, type TileDef } from '../data/defs';
+import { TILE_TABLE, T_AIR, T_BEDROCK, T_DIRT, T_GRASS, T_STONE, T_IRON, T_TRUNK, T_LEAF, T_DIRT_BACK, type TileDef } from '../data/defs';
 import { Rng } from './rng';
 
 export const NO_TEAM = 255;
@@ -308,11 +308,11 @@ export function generateMap(map: TileMap, rng: Rng): { spawnX: number[]; groundY
     for (let k = 0; k < n; k++) {
       const x = cx + rng.range(-2, 2);
       const y = cy + rng.range(-1, 1);
-      if (map.get(x, y) === T_STONE || (map.get(x, y) === T_DIRT && cx > half - 24)) map.set(x, y, T_GOLD);
+      if (map.get(x, y) === T_STONE || (map.get(x, y) === T_DIRT && cx > half - 24)) map.set(x, y, T_IRON);
     }
   }
   // 중앙 지상 노출 금 (이음새 근처 표면 아래 1~2칸)
-  for (let x = half - 8; x < half; x++) if (rng.int(3) === 0) map.set(x, groundY[x] + 1 + rng.int(2), T_GOLD);
+  for (let x = half - 8; x < half; x++) if (rng.int(3) === 0) map.set(x, groundY[x] + 1 + rng.int(2), T_IRON);
   // 4. 동굴 (랜덤워크, 기지 제외)
   const caves = (half / 24) | 0;
   for (let c = 0; c < caves; c++) {

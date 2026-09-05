@@ -18,7 +18,7 @@ describe('serialization schema covers every field', () => {
     const p = w.getPlayer(1)!;
     p.state = PlayerState.Alive;
     // 투사체/드롭은 시뮬로 만들어 본다
-    w.projectiles.push({ id: 1, kind: 0, owner: 1, team: 0, x: 0, y: 0, vx: 0, vy: 0, timer: 1, damage: 1, stuck: false });
+    w.projectiles.push({ id: 1, kind: 0, owner: 1, team: 0, x: 0, y: 0, vx: 0, vy: 0, timer: 1, damage: 1, stuck: false, attach: 0 });
     w.spawnDrop(0, 1, p.x, p.y, 0, 0);
     expectSameKeys('player', p, schemaKeys(PLAYER_SCHEMA));
     expectSameKeys('input', { ...EMPTY_INPUT }, schemaKeys(INPUT_SCHEMA));

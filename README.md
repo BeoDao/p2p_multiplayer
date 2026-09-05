@@ -1,9 +1,9 @@
-# P2P Multiplayer — browser tile-terrain team game
+# Rubblewar — browser tile-terrain team shooter
 
-A 2D team-versus-team game that runs entirely in the browser. Destructible and buildable
-tile terrain, three classes (knight, archer, builder), capture-the-flag rounds, water,
-and item drops — synchronized between players with **hostless peer-to-peer deterministic
-lockstep** and rendered with **2D skeletal animation** on PixiJS.
+A 2D modern-warfare team game that runs entirely in the browser. Destructible and buildable
+tile terrain, three classes, armored vehicles and automated defenses, capture-the-flag
+rounds, water, and item drops — synchronized between players with **hostless peer-to-peer
+deterministic lockstep** and rendered with **2D skeletal animation** on PixiJS.
 
 ## Features
 
@@ -13,8 +13,22 @@ lockstep** and rendered with **2D skeletal animation** on PixiJS.
 - **Deterministic simulation.** The simulation uses integers only (fixed-point positions,
   integer trigonometry and square roots, seeded RNG). Every peer runs the same
   simulation from the same inputs; only 4 bytes of input per player per tick are sent.
-- **Two-layer terrain.** Front tiles (dirt, stone, gold, wood, doors, ladders, spikes…)
-  and a back-wall layer. Unsupported chunks collapse; trees fall and drop logs.
+- **Three classes.**
+  - *Rifleman* — assault rifle (hold to fire, recoil spread, crouch with `S` to steady,
+    magazine and reserve ammo), grenades, and a breach shield that shoves enemies.
+  - *Marksman* — bolt-action sniper rifle with a scope (hold RMB to steady the aim — the
+    laser is visible to everyone), recon drones that reveal enemies on the minimap, and
+    claymores.
+  - *Engineer* — digs and builds (stone blocks, steel plates, doors, ladders, barbed wire,
+    supply depots), places sticky **C4** with remote detonation, and constructs **auto
+    turrets** and a **tank** with iron.
+- **Vehicles.** Each base has an armored two-seat **APC** (enclosed driver, exposed
+  machine-gunner) that shrugs off bullets; only explosives hurt it. Engineers can build a
+  **tank** whose main gun fires exploding shells. Destroyed vehicles drop scrap.
+- **Iron economy.** Iron ore is the currency for ammunition, explosives, turrets and
+  vehicles; scrap from wrecks can be recycled.
+- **Two-layer terrain.** Front tiles (dirt, stone, iron ore, wood, doors, ladders, steel,
+  barbed wire…) and a back-wall layer. Unsupported chunks collapse; trees fall and drop logs.
 - **Water.** Integer cellular-automaton water that flows and levels out; swimming and
   drowning.
 - **Item drops.** Resources and consumables drop on death or when trees are felled and
@@ -45,11 +59,13 @@ Nostr), `?relays=wss://…` (custom relays), `?lang=ja` (force a UI language).
 | --- | --- |
 | Move / jump | `A` `D`, `W` or `Space` |
 | Ladder up / down | `W` `S` |
-| Attack / dig / build | Left mouse button (hold to charge the bow) |
-| Shield (knight) | Right mouse button or `Shift` |
-| Select item | `1`–`9` or mouse wheel |
-| Change class (inside your base) | `F1` knight, `F2` archer, `F3` builder |
-| Buy consumables / heal (on a workshop) | `E` |
+| Fire / dig / build / place | Left mouse button (hold: automatic fire, grenade throw gauge) |
+| Breach shield / scope / detonate C4 | Right mouse button |
+| Crouch | `S` on the ground |
+| Select item | `1`–`9`, `0` or mouse wheel |
+| Board / leave a vehicle | `E` (driver: `A` `D`, LMB main gun; gunner: LMB) |
+| Change class (inside your base) | `F1` rifleman, `F2` marksman, `F3` engineer |
+| Buy consumables / heal (on a supply depot) | `E` |
 | Scoreboard / chat / settings | `Tab` / `Enter` / `Esc` |
 
 Carry the enemy flag to your own flag to score; three captures win the round.
@@ -84,6 +100,8 @@ public/assets/  optional PNG / WAV overrides (see below)
   `public/assets/sfx/` as `<name>.wav`.
 - **New block:** add a tile to `tiles.json` and a `{ kind: "block" }` entry to
   `items.json`.
+- **New vehicle:** add an entry to `vehicles.json` (optional `turret`, `mg`, `cannon`,
+  `armor`, `scrap`) and, for buildable ones, a `{ kind: "vehicle" }` item.
 - **New skin:** add an entry to `skins.json` (skins can extend others and substitute
   part textures per bone) and reference it from `classes.json`.
 - **Animation:** clips in `animations.json` are keyframed bone-rotation tracks; overlay

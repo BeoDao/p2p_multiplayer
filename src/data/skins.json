@@ -18,7 +18,7 @@
       ]
     },
     "rifleman": { "extends": "base", "vars": { "$head": "head_rifleman", "$back": "backpack" } },
-    "archer":  { "extends": "base", "vars": { "$head": "head_archer",  "$back": "quiver" } },
-    "builder": { "extends": "base", "vars": { "$head": "head_builder", "$back": "none" } }
+    "marksman": { "extends": "base", "vars": { "$head": "head_archer",  "$back": "radio" } },
+    "engineer": { "extends": "base", "vars": { "$head": "head_builder", "$back": "toolbag" } }
   }
 }

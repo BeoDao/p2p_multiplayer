@@ -1,7 +1,8 @@
 /** DOM 기반 HUD: 체력, 자원, 핫바, 점수, 네트워크 상태. 값이 바뀔 때만 DOM 갱신. */
-import { CLASSES, ITEM_BY_ID, RESOURCE_KINDS, TILE_TABLE } from '../data/defs';
+import { CLASSES, ITEM_BY_ID, RESOURCE_KINDS, TILE_TABLE, VEHICLES } from '../data/defs';
+import { nearestMountable } from '../sim/vehicle';
 import { World } from '../sim/world';
-import { PlayerState } from '../sim/types';
+import { PlayerState, ProjKind } from '../sim/types';
 import type { SessionStatus } from '../net/session';
 import { buildIconDataUrl } from './partsFactory';
 import { t, dataLabel, langButtonsHtml, setLang, type Lang } from './i18n';
@@ -201,20 +202,28 @@ export class Hud {
         if (name === 'dirt') { r = 122; g = 82; b = 48; }
         else if (name === 'grass') { r = 76; g = 154; b = 60; }
         else if (name === 'stone') { r = 125; g = 125; b = 133; }
-        else if (name === 'gold_ore') { r = 224; g = 176; b = 32; }
+        else if (name === 'iron_ore') { r = 160; g = 90; b = 48; }
         else if (name === 'bedrock') { r = 40; g = 40; b = 46; }
         else if (name === 'tree_trunk' || name === 'tree_leaf') { r = 50; g = 120; b = 45; }
         else if (TILE_TABLE[t].door) { r = 255; g = 200; b = 120; }
         else if (TILE_TABLE[t].shop) { r = 255; g = 230; b = 80; }
+        else if (name === 'steel_plate') { r = 140; g = 150; b = 170; }
+        else if (name === 'barbed_wire') { r = 200; g = 200; b = 210; a = 120; }
         else { r = 190; g = 160; b = 110; }
       }
       d[i * 4] = r; d[i * 4 + 1] = g; d[i * 4 + 2] = b; d[i * 4 + 3] = a;
     }
     ctx.putImageData(img, 0, 0);
     for (const f of world.flags) { ctx.fillStyle = f.team === 0 ? '#4a7bff' : '#ff4a4a'; ctx.fillRect((f.x >> 11) - 1, (f.y >> 11) - 2, 3, 3); }
+    const me = world.getPlayer(localPid);
+    const myTeam = me?.team ?? -1;
+    const nearAlly = (q: { x: number; y: number }): boolean => world.players.some((a) => a.team === myTeam && a.state === PlayerState.Alive && Math.abs((a.x - q.x) >> 11) <= 14 && Math.abs((a.y - q.y) >> 11) <= 9);
+    for (const q of world.projectiles) if (q.kind === ProjKind.Drone && q.team === myTeam) { ctx.fillStyle = '#80ffc0'; ctx.fillRect((q.x >> 11) - 1, (q.y >> 11) - 1, 2, 2); }
     for (const p of world.players) {
+      // 적은 아군 근처(14×9칸)에 있거나 드론에 발각됐을 때만 표시
+      if (p.team !== myTeam && myTeam >= 0 && p.spotTimer === 0 && !nearAlly(p)) continue;
       if (p.state !== PlayerState.Alive) continue;
-      ctx.fillStyle = p.id === localPid ? '#ffffff' : p.team === 0 ? '#9ab0ff' : '#ffa0a0';
+      ctx.fillStyle = p.id === localPid ? '#ffffff' : p.team === myTeam ? (myTeam === 0 ? '#9ab0ff' : '#ffa0a0') : p.spotTimer > 0 ? '#ff2020' : (p.team === 0 ? '#9ab0ff' : '#ffa0a0');
       ctx.fillRect((p.x >> 11) - 1, (p.y >> 11) - 1, 2, 3);
     }
   }
@@ -247,7 +256,7 @@ export class Hud {
     }
     const score = `${world.score[0]}:${world.score[1]}`;
     const key = p
-      ? `${score}|${p.cls}|${p.hp}|${p.wood}|${p.stone}|${p.gold}|${p.slot}|${p.bombs}|${p.arrows}|${p.state}|${p.respawnAt - world.tick}|${inBase}|${world.roundOverAt}|${p.kills}|${p.deaths}|${p.carryingFlag}|${canMount}|${p.vehicle}|${p.mag}|${p.ammo}|${p.reload > 0}`
+      ? `${score}|${p.cls}|${p.hp}|${p.wood}|${p.stone}|${p.iron}|${p.slot}|${p.bombs}|${p.arrows}|${p.state}|${p.respawnAt - world.tick}|${inBase}|${world.roundOverAt}|${p.kills}|${p.deaths}|${p.carryingFlag}|${canMount}|${p.vehicle}|${p.mag}|${p.ammo}|${p.reload > 0}|${p.c4}|${p.drones}|${p.mines}`
       : `${score}|none`;
     if (key === this.lastKey) return;
     this.lastKey = key;
@@ -263,7 +272,7 @@ export class Hud {
         h += `<span class="heart" style="opacity:${0.25 + 0.75 * (v / 4)}">♥</span>`;
       }
       topHtml += `<div class="hp">${h}</div>`;
-      topHtml += `<div class="res" translate="no">${RESOURCE_KINDS.map((r) => `<span class="${r}">${r === 'wood' ? '🪵' : r === 'stone' ? '🪨' : '🪙'} ${p[r]}</span>`).join('')}</div>`;
+      topHtml += `<div class="res" translate="no">${RESOURCE_KINDS.map((r) => `<span class="${r}">${r === 'wood' ? '🪵' : r === 'stone' ? '🪨' : '⚙️'} ${p[r]}</span>`).join('')}</div>`;
       topHtml += `<div class="kd">K ${p.kills} / D ${p.deaths}${p.carryingFlag >= 0 ? ' · ' + t('carryingFlag') : ''}</div>`;
     }
     this.top.innerHTML = topHtml;
@@ -277,9 +286,11 @@ export class Hud {
       const s = Math.max(0, Math.ceil((p.respawnAt - world.tick) / 30));
       centerHtml = `<div class="big">${t('dead')}</div><div>${t('respawnIn', { s })}</div>`;
     } else if (p && p.vehicle) {
-      centerHtml = `<div class="hint">${t('dismountHint')}</div>`;
+      const veh = world.vehicles.find((v) => v.id === p.vehicle);
+      centerHtml = `<div class="hint">${t(veh && veh.gunner === p.id ? 'gunnerHint' : 'dismountHint')}</div>`;
     } else if (p && canMount) {
-      centerHtml = `<div class="hint">${t('mountHint')}</div>`;
+      const near = nearestMountable(world, p);
+      centerHtml = `<div class="hint">${t('mountHint', { v: near ? dataLabel(VEHICLES[near.kind]) : '' })}</div>`;
     } else if (p && inBase) {
       centerHtml = `<div class="hint">${t('baseHint', { c0: dataLabel(CLASSES[0]), c1: dataLabel(CLASSES[1]), c2: dataLabel(CLASSES[2]) })}</div>`;
     }
@@ -297,11 +308,15 @@ export class Hud {
         if (it.id === 'bomb' || it.id === 'grenade') extra = `<span class="cnt">${p.bombs}</span>`;
         if (it.id === 'rifle') extra = `<span class="cnt">${p.reload > 0 ? '⟳' : p.mag}/${p.ammo}</span>`;
         if (it.id === 'bow') extra = `<span class="cnt">${p.arrows}</span>`;
+        if (it.id === 'c4') extra = `<span class="cnt">${p.c4}</span>`;
+        if (it.id === 'sniper') extra = `<span class="cnt">${p.reload > 0 ? '⟳' : p.mag}/${p.ammo}</span>`;
+        if (it.id === 'drone') extra = `<span class="cnt">${p.drones}</span>`;
+        if (it.id === 'claymore') extra = `<span class="cnt">${p.mines}</span>`;
         if (it.cost) {
           const afford = RESOURCE_KINDS.every((r) => !it.cost![r] || p[r] >= it.cost![r]!);
-          extra = `<span class="cost${afford ? '' : ' no'}">${RESOURCE_KINDS.filter((r) => it.cost![r]).map((r) => `${it.cost![r]}${r === 'wood' ? '🪵' : r === 'stone' ? '🪨' : '🪙'}`).join(' ')}</span>`;
+          extra = `<span class="cost${afford ? '' : ' no'}">${RESOURCE_KINDS.filter((r) => it.cost![r]).map((r) => `${it.cost![r]}${r === 'wood' ? '🪵' : r === 'stone' ? '🪨' : '⚙️'}`).join(' ')}</span>`;
         }
-        bar += `<div class="slot${sel}" title="${dataLabel(it)}"><span class="num">${i + 1}</span><img src="${this.icon(it.icon)}" alt="">${extra}</div>`;
+        bar += `<div class="slot${sel}" title="${dataLabel(it)}"><span class="num">${(i + 1) % 10}</span><img src="${this.icon(it.icon)}" alt="">${extra}</div>`;
       });
       this.bottom.innerHTML = `<div class="cls">${dataLabel(cls)}</div><div class="hotbar">${bar}</div>`;
     } else this.bottom.innerHTML = '';

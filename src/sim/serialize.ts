@@ -20,15 +20,15 @@ export const PLAYER_SCHEMA: Schema = [
   ['x', 'i32'], ['y', 'i32'], ['vx', 'i32'], ['vy', 'i32'],
   ['onGround', 'bool'], ['onLadder', 'bool'], ['inWater', 'bool'], ['breath', 'i32'], ['facing', 'i32'], ['aimX', 'i32'], ['aimY', 'i32'],
   ['hp', 'i32'], ['slot', 'u8'], ['attackTimer', 'i32'], ['attackWindup', 'i32'], ['charge', 'i32'], ['shield', 'bool'],
-  ['bombs', 'i32'], ['arrows', 'i32'], ['wood', 'i32'], ['stone', 'i32'], ['gold', 'i32'],
+  ['bombs', 'i32'], ['arrows', 'i32'], ['wood', 'i32'], ['stone', 'i32'], ['iron', 'i32'],
   ['carryingFlag', 'i32'], ['kills', 'i32'], ['deaths', 'i32'],
   ['lastInput', { obj: INPUT_SCHEMA }],
   ['hurtTimer', 'i32'], ['animEvent', 'i32'], ['digMode', 'u8'], ['digCheat', 'u8'], ['vehicle', 'i32'], ['god', 'u8'], ['jumpTicks', 'u8'],
-  ['ammo', 'i32'], ['mag', 'i32'], ['reload', 'i32'], ['spread', 'i32'],
+  ['ammo', 'i32'], ['mag', 'i32'], ['reload', 'i32'], ['spread', 'i32'], ['c4', 'i32'], ['drones', 'i32'], ['mines', 'i32'], ['scope', 'i32'], ['spotTimer', 'i32'],
 ];
 export const PROJECTILE_SCHEMA: Schema = [
   ['id', 'i32'], ['kind', 'u8'], ['owner', 'i32'], ['team', 'u8'], ['x', 'i32'], ['y', 'i32'], ['vx', 'i32'], ['vy', 'i32'],
-  ['timer', 'i32'], ['damage', 'i32'], ['stuck', 'bool'],
+  ['timer', 'i32'], ['damage', 'i32'], ['stuck', 'bool'], ['attach', 'i32'],
 ];
 export const FLAG_SCHEMA: Schema = [
   ['team', 'u8'], ['homeX', 'i32'], ['homeY', 'i32'], ['x', 'i32'], ['y', 'i32'], ['carrier', 'i32'], ['atHome', 'bool'], ['returnTimer', 'i32'],
@@ -38,7 +38,7 @@ export const DROP_SCHEMA: Schema = [
 ];
 export const VEHICLE_SCHEMA: Schema = [
   ['id', 'i32'], ['kind', 'u8'], ['team', 'u8'], ['x', 'i32'], ['y', 'i32'], ['vx', 'i32'], ['vy', 'i32'], ['onGround', 'bool'],
-  ['angle', 'i32'], ['hp', 'i32'], ['driver', 'i32'], ['facing', 'i32'], ['ramTimer', 'i32'], ['odo', 'i32'],
+  ['angle', 'i32'], ['hp', 'i32'], ['driver', 'i32'], ['gunner', 'i32'], ['facing', 'i32'], ['ramTimer', 'i32'], ['odo', 'i32'], ['owner', 'i32'], ['aim', 'i32'], ['target', 'i32'], ['aimTicks', 'i32'],
 ];
 /** World 의 스칼라 상태 (배열/맵 제외). 순서 = 바이트 순서 */
 export const WORLD_SCALARS: Schema = [

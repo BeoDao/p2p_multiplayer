@@ -37,7 +37,7 @@ describe('fuzz invariants', () => {
         expect(Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.vx) && Number.isInteger(p.vy), `tick ${t} ints`).toBe(true);
         expect(p.hp).toBeGreaterThanOrEqual(0);
         expect(p.hp).toBeLessThanOrEqual(cls.hp);
-        expect(p.wood).toBeGreaterThanOrEqual(0); expect(p.stone).toBeGreaterThanOrEqual(0); expect(p.gold).toBeGreaterThanOrEqual(0);
+        expect(p.wood).toBeGreaterThanOrEqual(0); expect(p.stone).toBeGreaterThanOrEqual(0); expect(p.iron).toBeGreaterThanOrEqual(0);
         expect(p.bombs).toBeGreaterThanOrEqual(0); expect(p.arrows).toBeGreaterThanOrEqual(0);
         if (p.state === PlayerState.Alive) {
           // 고체 타일 안에 있으면 안 됨

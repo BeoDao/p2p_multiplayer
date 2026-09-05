@@ -102,7 +102,7 @@ class InputState {
       if (e.repeat || this.blocked) return;
       this.keys.add(e.code);
       this.latched.add(e.code);
-      if (e.code.startsWith('Digit')) { const n = parseInt(e.code.slice(5), 10); if (n >= 1 && n <= 9) this.slot = n - 1; }
+      if (e.code.startsWith('Digit')) { const n = parseInt(e.code.slice(5), 10); if (n >= 1 && n <= 9) this.slot = n - 1; else if (n === 0) this.slot = 9; }
       if (e.code === 'F1') { this.clsRequest = 0; e.preventDefault(); }
       if (e.code === 'F2') { this.clsRequest = 1; e.preventDefault(); }
       if (e.code === 'F3') { this.clsRequest = 2; e.preventDefault(); }

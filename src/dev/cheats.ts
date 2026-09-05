@@ -14,13 +14,13 @@ export interface CheatSink {
 
 const LIST = [
   '/cheat                 list cheats',
-  '/res                   +1000 wood/stone/gold',
+  '/res                   +1000 wood/stone/iron',
   '/dig                   toggle instant dig',
   '/heal                  full heal',
   '/god                   toggle invincibility',
   '/tp <x> <y>            teleport to tile (or /tp base | /tp enemy | /tp mid)',
-  '/cls knight|archer|builder   change class anywhere',
-  '/ammo [n]              +bombs/+arrows (default 10/30)',
+  '/cls rifleman|marksman|engineer   change class anywhere',
+  '/ammo [n]              +bombs/+arrows/+rifle ammo (default 10/30/120)',
   '/cart                  spawn a cart at your position',
   '/kill                  die',
   '/flag                  take the enemy flag',
@@ -28,9 +28,9 @@ const LIST = [
   '/tile <name> [back]    place a tile at the cursor (e.g. /tile stone_block, /tile stone_back back)',
   '/clear [r]             remove tiles around you (radius r, default 4)',
   '/win                   end the round with your team winning',
-  '/dummy [team] [class]  spawn a dummy bot at the cursor (default: enemy knight)',
+  '/dummy [team] [class]  spawn a dummy bot at the cursor (default: enemy rifleman)',
   '/nodummy               remove all dummies',
-  '/drop <kind> [n]       drop item: wood|stone|gold|bombs|arrows',
+  '/drop <kind> [n]       drop item: wood|stone|iron|bombs|arrows',
   '/score <a> <b>         set score',
   '/respawn               respawn now (when dead)',
   '/skip [ticks]          advance water simulation quickly',
@@ -38,7 +38,7 @@ const LIST = [
 
 const CLASS_BY_NAME: Record<string, number> = {};
 for (const c of CLASSES) CLASS_BY_NAME[c.name] = c.id;
-const DROP_KINDS: Record<string, number> = { wood: 0, stone: 1, gold: 2, bombs: 3, bomb: 3, arrows: 4, arrow: 4 };
+const DROP_KINDS: Record<string, number> = { wood: 0, stone: 1, iron: 2, bombs: 3, bomb: 3, arrows: 4, arrow: 4 };
 
 function num(s: string | undefined, def = 0): number { const v = parseInt(s ?? '', 10); return Number.isFinite(v) ? v : def; }
 
@@ -88,7 +88,7 @@ export function runCheat(text: string, sink: CheatSink, ctx?: { spawnX: number[]
     case '/nodummy': sink.request(19); return ok('dummies removed');
     case '/drop': {
       const kind = DROP_KINDS[(parts[1] ?? '').toLowerCase()];
-      if (kind === undefined) return ok('usage: /drop wood|stone|gold|bombs|arrows [n]');
+      if (kind === undefined) return ok('usage: /drop wood|stone|iron|bombs|arrows [n]');
       sink.request(16, kind, num(parts[2], 10)); return ok('drop');
     }
     case '/score': sink.request(17, num(parts[1], 0), num(parts[2], 0)); return ok('score set');

@@ -70,7 +70,8 @@ export class Sound {
       case 'explode': this.noise(0.5, 300, 60, gain * 0.9); this.tone(60, 0.4, 'sine', gain * 0.8, 20); break;
       case 'dig': this.noise(0.05, 2500, 1200, gain * 0.35); this.tone(200 + ((e.tile ?? 0) * 37) % 200, 0.04, 'square', gain * 0.15, 150); break;
       case 'build': this.tone(520, 0.05, 'square', gain * 0.3, 700); break;
-      case 'shoot': if (e.tile === 1) { this.noise(0.05, 1800, 400, gain * 0.5); this.tone(160, 0.05, 'square', gain * 0.25, 60); } else { this.noise(0.08, 3000, 800, gain * 0.4); this.tone(700, 0.08, 'triangle', gain * 0.3, 300); } break;
+      case 'drone': this.tone(900, 0.25, 'sawtooth', gain * 0.12, 1400); break;
+      case 'shoot': if (e.tile === 3) { this.noise(0.25, 500, 80, gain * 0.9); this.tone(50, 0.25, 'square', gain * 0.5, 30); } else if (e.tile === 2) { this.noise(0.12, 900, 200, gain * 0.7); this.tone(90, 0.12, 'square', gain * 0.35, 40); } else if (e.tile === 1) { this.noise(0.05, 1800, 400, gain * 0.5); this.tone(160, 0.05, 'square', gain * 0.25, 60); } else { this.noise(0.08, 3000, 800, gain * 0.4); this.tone(700, 0.08, 'triangle', gain * 0.3, 300); } break;
       case 'capture': this.arp([523, 659, 784, 1047], 0.09, gain * 0.5); break;
       case 'pickup': this.arp([440, 660], 0.08, gain * 0.4); break;
       case 'buy': this.arp([880, 1320], 0.06, gain * 0.4); break;

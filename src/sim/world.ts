@@ -6,10 +6,10 @@ import {
   FP_ONE, TILE_FP, TILE_SHIFT, px, toTile, clamp, iabs, isign, imin, imax, vnorm, vlen, aabbOverlap, idiv, batan2, bsin, bcos,
 } from './fixed';
 import { Rng } from './rng';
-import { spawnVehicle, handleMount, updateRider, updateVehicles, dismount, damageVehicle, vehicleDef, nearestMountable } from './vehicle';
+import { spawnVehicle, spawnVehicleAt, handleMount, updateRider, updateVehicles, dismount, damageVehicle, vehicleDef, nearestMountable, isShielded } from './vehicle';
 import { TileMap, NO_TEAM, WATER_MAX, generateMap } from './tilemap';
 import {
-  CLASSES, TILE_TABLE, T_AIR, T_TRUNK, hotbarItem, tileId, RESOURCE_KINDS, type ClassDef, type ResourceKind, type TileDef,
+  CLASSES, VEHICLES, VEHICLE_BY_NAME, TILE_TABLE, T_AIR, T_TRUNK, hotbarItem, tileId, RESOURCE_KINDS, type ClassDef, type ResourceKind, type TileDef, type VehicleDef,
 } from '../data/defs';
 import {
   BTN_LEFT, BTN_RIGHT, BTN_UP, BTN_DOWN, BTN_JUMP, BTN_ACTION1, BTN_ACTION2, BTN_USE, EMPTY_INPUT, type Input,
@@ -137,8 +137,8 @@ export class World {
       id: pid, name, team, cls: cls.id, state: PlayerState.Dead, respawnAt: this.tick,
       x: 0, y: 0, vx: 0, vy: 0, onGround: false, onLadder: false, inWater: false, breath: BREATH_TICKS, facing: team === TEAM_BLUE ? 1 : -1,
       aimX: 0, aimY: 0, hp: 0, slot: 0, attackTimer: 0, attackWindup: 0, charge: 0, shield: false,
-      bombs: 0, arrows: 0, wood: 0, stone: 0, gold: 0, carryingFlag: -1, kills: 0, deaths: 0,
-      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0, vehicle: 0, god: 0, jumpTicks: 0, ammo: 0, mag: 0, reload: 0, spread: 0,
+      bombs: 0, arrows: 0, wood: 0, stone: 0, iron: 0, carryingFlag: -1, kills: 0, deaths: 0,
+      lastInput: { ...EMPTY_INPUT }, hurtTimer: 0, animEvent: 0, digMode: 0, digCheat: 0, vehicle: 0, god: 0, jumpTicks: 0, c4: 0, drones: 0, mines: 0, scope: 0, spotTimer: 0, ammo: 0, mag: 0, reload: 0, spread: 0,
     };
     // 정렬 삽입
     let i = this.players.length;
@@ -169,6 +169,8 @@ export class World {
     p.state = PlayerState.Alive;
     p.bombs = cls.bombs ?? 0;
     p.arrows = cls.bow?.arrows ?? 0;
+    p.c4 = cls.c4?.count ?? 0;
+    p.drones = cls.drone?.count ?? 0; p.mines = cls.mine?.count ?? 0; p.scope = 0;
     this.initGun(p, cls);
     p.attackTimer = 0; p.attackWindup = 0; p.charge = 0; p.shield = false;
     p.carryingFlag = -1;
@@ -325,7 +327,7 @@ export class World {
     for (const p of this.players) {
       p.state = PlayerState.Dead;
       p.respawnAt = this.tick;
-      p.wood = 0; p.stone = 0; p.gold = 0;
+      p.wood = 0; p.stone = 0; p.iron = 0;
       p.carryingFlag = -1;
       p.vehicle = 0;
     }
@@ -358,6 +360,8 @@ export class World {
       p.hp = ncls.hp;
       p.bombs = ncls.bombs ?? 0;
       p.arrows = ncls.bow?.arrows ?? 0;
+      p.c4 = ncls.c4?.count ?? 0;
+      p.drones = ncls.drone?.count ?? 0; p.mines = ncls.mine?.count ?? 0; p.scope = 0;
       this.initGun(p, ncls);
       p.attackTimer = 0; p.attackWindup = 0; p.charge = 0; p.shield = false;
       p.slot = 0;
@@ -380,8 +384,15 @@ export class World {
     // 방패/방탄판: 우클릭 홀드 시 이동 속도 감소. 앉기(S, 지상): 속도 절반, 총 퍼짐 감소
     p.shield = !!cls.shield && (inp.buttons & BTN_ACTION2) !== 0;
     const crouch = down && p.onGround && !p.onLadder && !this.map.isLadder(toTile(p.x + (w >> 1)), toTile(p.y + (h >> 1)));
+    // 조준(저격): 우클릭 홀드 + 총을 들고 있을 때. 유지할수록 퍼짐이 0 으로, 이동은 느려짐
+    const scopeDef = cls.gun?.scope;
+    const scoping = !!scopeDef && (inp.buttons & BTN_ACTION2) !== 0 && hotbarItem(cls, p.slot)?.id === cls.weapon;
+    p.scope = scoping ? imin(p.scope + 1, scopeDef!.steadyTicks) : 0;
+    if (p.spotTimer > 0) p.spotTimer--;
     const speedMul = p.shield || crouch ? 2 : 4; // /4
-    const runSpeed = idiv(cls.runSpeed * speedMul, 4);
+    const inWire = this.touchesTile(p, w, h, (d) => !!d.wire); // 철조망: 1/3 속도
+    let runSpeed = idiv(cls.runSpeed * speedMul, inWire ? 12 : 4);
+    if (p.scope > 0) runSpeed = idiv(runSpeed, scopeDef!.speedDiv);
     // 총기 상태: 퍼짐 회복, 재장전 진행
     if (cls.gun) {
       if (p.spread > cls.gun.spreadMin) p.spread = imax(cls.gun.spreadMin, p.spread - cls.gun.spreadDecay);
@@ -485,7 +496,7 @@ export class World {
     const fx = () => this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id });
     const aimTile = (): [number, number] => [toTile(p.x + (px(cls.width) >> 1) + px(p.aimX)), toTile(p.y + (px(cls.height) >> 1) + px(p.aimY))];
     switch (inp.cheat) {
-      case 1: p.wood = imin(p.wood + 1000, 9999); p.stone = imin(p.stone + 1000, 9999); p.gold = imin(p.gold + 1000, 9999); fx(); break;
+      case 1: p.wood = imin(p.wood + 1000, 9999); p.stone = imin(p.stone + 1000, 9999); p.iron = imin(p.iron + 1000, 9999); fx(); break;
       case 2: p.digCheat = p.digCheat ? 0 : 1; fx(); break;
       case 3: p.hp = cls.hp; fx(); break;
       case 4: p.god = p.god ? 0 : 1; fx(); break;
@@ -496,9 +507,9 @@ export class World {
       }
       case 6: { // 직업 변경 (어디서나)
         if (a0 < 0 || a0 >= CLASSES.length) break;
-        this.dropFlag(p); p.cls = a0; const n = CLASSES[a0]; p.hp = n.hp; p.bombs = n.bombs ?? 0; p.arrows = n.bow?.arrows ?? 0; p.slot = 0; p.charge = 0; p.animEvent++; fx(); break;
+        this.dropFlag(p); p.cls = a0; const n = CLASSES[a0]; p.hp = n.hp; p.bombs = n.bombs ?? 0; p.arrows = n.bow?.arrows ?? 0; p.c4 = n.c4?.count ?? 0; p.drones = n.drone?.count ?? 0; p.mines = n.mine?.count ?? 0; this.initGun(p, n); p.slot = 0; p.charge = 0; p.animEvent++; fx(); break;
       }
-      case 7: p.bombs = clamp(p.bombs + (a0 || 10), 0, 99); p.arrows = clamp(p.arrows + (a0 || 30), 0, 999); fx(); break; // ammo
+      case 7: { p.bombs = clamp(p.bombs + (a0 || 10), 0, 99); p.arrows = clamp(p.arrows + (a0 || 30), 0, 999); const c4 = CLASSES[p.cls]?.c4; if (c4) p.c4 = clamp(p.c4 + (a0 || c4.count), 0, c4.max); const dr = CLASSES[p.cls]?.drone; if (dr) p.drones = clamp(p.drones + (a0 || dr.count), 0, 9); const mn = CLASSES[p.cls]?.mine; if (mn) p.mines = clamp(p.mines + (a0 || mn.count), 0, mn.max); const g = CLASSES[p.cls]?.gun; if (g) { p.ammo = clamp(p.ammo + (a0 || g.ammo), 0, g.ammoMax); if (p.mag <= 0 && p.reload === 0) p.reload = g.reloadTicks; } fx(); break; } // ammo
       case 8: { // 탈것 생성 (플레이어 위치)
         const v = spawnVehicle(this, p.team, clamp(a0, 0, 0));
         v.x = p.x; v.y = p.y - px(8); fx(); break;
@@ -575,11 +586,12 @@ export class World {
     const use = (inp.buttons & BTN_USE) !== 0, usePrev = (p.lastInput.buttons & BTN_USE) !== 0;
     if (use && !usePrev && cls.shop) {
       const sh = cls.shop;
-      const cur = sh.buy === 'bombs' ? p.bombs : sh.buy === 'ammo' ? p.ammo : p.arrows;
+      const cur = sh.buy === 'bombs' ? p.bombs : sh.buy === 'ammo' ? p.ammo : sh.buy === 'c4' ? p.c4 : p.arrows;
       if (cur < sh.max && this.canAfford(p, sh.cost)) {
         this.payCost(p, sh.cost);
         if (sh.buy === 'bombs') p.bombs = imin(sh.max, p.bombs + sh.amount);
         else if (sh.buy === 'ammo') p.ammo = imin(sh.max, p.ammo + sh.amount);
+        else if (sh.buy === 'c4') p.c4 = imin(sh.max, p.c4 + sh.amount);
         else p.arrows = imin(sh.max, p.arrows + sh.amount);
         this.events.push({ kind: 'buy', x: p.x, y: p.y, player: p.id });
       }
@@ -652,12 +664,26 @@ export class World {
     return false;
   }
 
+  private touchesTile(p: Player, w: number, h: number, pred: (d: TileDef) => boolean): boolean {
+    const x0 = toTile(p.x), x1 = toTile(p.x + w - 1);
+    const y0 = toTile(p.y), y1 = toTile(p.y + h - 1);
+    for (let ty = y0; ty <= y1; ty++)
+      for (let tx = x0; tx <= x1; tx++) if (pred(TILE_TABLE[this.map.get(tx, ty)])) return true;
+    return false;
+  }
+
   private checkSpikes(p: Player, w: number, h: number): void {
     const x0 = toTile(p.x), x1 = toTile(p.x + w - 1);
     const y0 = toTile(p.y), y1 = toTile(p.y + h - 1);
     for (let ty = y0; ty <= y1; ty++)
       for (let tx = x0; tx <= x1; tx++) {
         const d = TILE_TABLE[this.map.get(tx, ty)];
+        if (d.wire && p.hurtTimer === 0 && this.tick % 20 === 0) {
+          // 철조망: 안에 있는 동안 주기적으로 1 피해 (넉백 없음)
+          this.hurt(p, 1, 0, 0, 0);
+          p.hurtTimer = 10;
+          return;
+        }
         if (d.damage && p.hurtTimer === 0 && (p.vy > 300 || iabs(p.vx) > 300)) {
           this.hurt(p, d.damage, 0, -isign(p.vx) * 600, -900);
           p.hurtTimer = 20;
@@ -690,27 +716,30 @@ export class World {
         }
         break;
       }
-      case 'rifle': {
-        // 돌격소총: 홀드 연사. 반동으로 퍼짐이 커지고(앉으면 절반) 쉬면 회복. 탄창이 비면 자동 재장전.
+      case 'rifle':
+      case 'sniper': {
+        // 총기: 홀드 연사(auto) 또는 클릭당 1발. 반동으로 퍼짐이 커지고(앉으면 절반, 조준 유지 시 0 으로) 쉬면 회복. 탄창이 비면 자동 재장전.
         const gun = cls.gun!;
         if (p.shield || p.reload > 0) break;
-        if (a1 && p.attackTimer === 0) {
+        const fire = gun.auto === false ? a1 && !a1Prev : a1;
+        if (fire && p.attackTimer === 0) {
           if (p.mag <= 0) { if (p.ammo > 0) p.reload = gun.reloadTicks; break; }
           p.mag--;
           p.attackTimer = gun.rof;
           const crouching = (inp.buttons & BTN_DOWN) !== 0 && p.onGround;
-          const spread = crouching ? idiv(p.spread, gun.crouchDiv) : p.spread;
+          let spread = crouching ? idiv(p.spread, gun.crouchDiv) : p.spread;
+          if (gun.scope && p.scope > 0) spread = idiv(spread * (gun.scope.steadyTicks - p.scope), gun.scope.steadyTicks);
           const baseAng = batan2(inp.cy, inp.cx || p.facing);
           const ang = (baseAng + this.rng.range(-spread, spread)) & 4095;
           const [ax, ay] = this.bowHand(p, { handY: gun.handY, handReach: gun.handReach } as NonNullable<ClassDef['bow']>, cx, cy);
           this.projectiles.push({
             id: this.nextProjId++, kind: ProjKind.Bullet, owner: p.id, team: p.team,
             x: ax, y: ay, vx: idiv(bcos(ang) * gun.speed, 4096), vy: idiv(bsin(ang) * gun.speed, 4096),
-            timer: gun.life, damage: gun.damage, stuck: false,
+            timer: gun.life, damage: gun.damage, stuck: false, attach: 0,
           });
           p.spread = imin(gun.spreadMax, p.spread + gun.spreadPerShot);
           p.animEvent++;
-          this.events.push({ kind: 'shoot', x: ax, y: ay, player: p.id, tile: 1 });
+          this.events.push({ kind: 'shoot', x: ax, y: ay, player: p.id, tile: item.id === 'sniper' ? 2 : 1 });
           if (p.mag === 0 && p.ammo > 0) p.reload = gun.reloadTicks;
         }
         break;
@@ -731,10 +760,57 @@ export class World {
             this.projectiles.push({
               id: this.nextProjId++, kind: ProjKind.Bomb, owner: p.id, team: p.team,
               x: cx, y: cy, vx: vx + idiv(p.vx, 2), vy: vy - 200, timer: cls.bombFuse ?? 90,
-              damage: cls.bombDamage ?? 10, stuck: false,
+              damage: cls.bombDamage ?? 10, stuck: false, attach: 0,
             });
             p.animEvent++;
           }
+        }
+        break;
+      }
+      case 'c4': {
+        // 점착 폭약: 좌클릭(누른 순간)에 던지면 처음 닿은 타일/탈것에 붙는다. 우클릭(누른 순간)으로 내 폭약 전부 기폭.
+        const c4 = cls.c4!;
+        const a2 = (inp.buttons & BTN_ACTION2) !== 0, a2Prev = (p.lastInput.buttons & BTN_ACTION2) !== 0;
+        if (a1 && !a1Prev && p.c4 > 0 && p.attackTimer === 0 && this.liveC4(p.id) < c4.live) {
+          p.c4--;
+          p.attackTimer = 12;
+          const [vx, vy] = vnorm(inp.cx || p.facing, inp.cy, c4.speed);
+          this.projectiles.push({
+            id: this.nextProjId++, kind: ProjKind.C4, owner: p.id, team: p.team,
+            x: cx, y: cy, vx: vx + idiv(p.vx, 2), vy: vy - 150, timer: c4.life, damage: c4.damage, stuck: false, attach: 0,
+          });
+          p.animEvent++;
+        }
+        if (a2 && !a2Prev) this.detonate(p.id);
+        break;
+      }
+      case 'drone': {
+        // 정찰 드론: 클릭으로 띄운다(한 번에 1대). 소유자의 커서 위치로 날아가며 근처 적을 표시한다
+        const dr = cls.drone!;
+        if (a1 && !a1Prev && p.drones > 0 && p.attackTimer === 0 && !this.projectiles.some((q) => q.kind === ProjKind.Drone && q.owner === p.id)) {
+          p.drones--;
+          p.attackTimer = 10;
+          this.projectiles.push({
+            id: this.nextProjId++, kind: ProjKind.Drone, owner: p.id, team: p.team,
+            x: cx, y: cy - px(6), vx: 0, vy: -300, timer: dr.life, damage: dr.hp, stuck: false, attach: 0,
+          });
+          p.animEvent++;
+          this.events.push({ kind: 'drone', x: cx, y: cy, player: p.id });
+        }
+        break;
+      }
+      case 'claymore': {
+        // 클레이모어: C4 처럼 던져 붙인다. 적이 trigger 안에 들어오면 자동 폭발
+        const mine = cls.mine!;
+        if (a1 && !a1Prev && p.mines > 0 && p.attackTimer === 0 && this.projectiles.filter((q) => q.kind === ProjKind.Claymore && q.owner === p.id).length < mine.max) {
+          p.mines--;
+          p.attackTimer = 12;
+          const [vx, vy] = vnorm(inp.cx || p.facing, inp.cy, mine.speed);
+          this.projectiles.push({
+            id: this.nextProjId++, kind: ProjKind.Claymore, owner: p.id, team: p.team,
+            x: cx, y: cy, vx: vx + idiv(p.vx, 2), vy: vy - 150, timer: 30 * 60 * 5, damage: mine.damage, stuck: false, attach: 0,
+          });
+          p.animEvent++;
         }
         break;
       }
@@ -757,7 +833,7 @@ export class World {
             const [vx, vy] = vnorm(dx, dy, speed);
             this.projectiles.push({
               id: this.nextProjId++, kind: ProjKind.Arrow, owner: p.id, team: p.team,
-              x: ax, y: ay, vx, vy, timer: ARROW_LIFE, damage: dmg, stuck: false,
+              x: ax, y: ay, vx, vy, timer: ARROW_LIFE, damage: dmg, stuck: false, attach: 0,
             });
             p.animEvent++;
             this.events.push({ kind: 'shoot', x: ax, y: ay, player: p.id });
@@ -795,6 +871,26 @@ export class World {
         break;
       }
       default: {
+        // 탈것 설치 (자동 포탑 등): 커서 칸에 차체가 들어가고 바로 아래가 고체여야 한다
+        if (item.kind === 'vehicle' && item.vehicle && a1 && !a1Prev && p.attackTimer === 0 && cls.build) {
+          const vd = VEHICLE_BY_NAME.get(item.vehicle)!;
+          const [tx, ty] = this.vehicleSite(p, vd, cx, cy, inp.cx, inp.cy, cls.build.reach);
+          const vw = px(vd.width), vh = px(vd.height);
+          const vx = (tx << TILE_SHIFT) + (TILE_FP >> 1) - (vw >> 1), vy = ((ty + 1) << TILE_SHIFT) - vh;
+          const limit = vd.maxPerTeam ?? vd.turret?.maxPerTeam ?? 99;
+          const count = this.vehicles.filter((v) => v.kind === vd.id && v.team === p.team).length;
+          if (count < limit && this.canAfford(p, item.cost) && this.lineClear(p.team, cx, cy, vx + (vw >> 1), vy + (vh >> 1))
+            && !this.collidesAt(vx, vy, vw, vh, p.team) && this.collidesAt(vx, vy + vh, vw, 256, p.team)
+            && !this.players.some((q) => q.state === PlayerState.Alive && aabbOverlap(q.x, q.y, px(CLASSES[q.cls].width), px(CLASSES[q.cls].height), vx, vy, vw, vh))
+            && !this.vehicles.some((v) => aabbOverlap(v.x, v.y, px(vehicleDef(v).width), px(vehicleDef(v).height), vx, vy, vw, vh))) {
+            this.payCost(p, item.cost);
+            spawnVehicleAt(this, vd.id, p.team, vx, vy, p.id);
+            p.attackTimer = cls.build.cooldown;
+            p.animEvent++;
+            this.events.push({ kind: 'build', x: vx + (vw >> 1), y: vy + (vh >> 1), tile: 0 });
+          }
+          break;
+        }
         // 블록 설치
         if (item.kind === 'block' && item.tile && a1 && p.attackTimer === 0 && cls.build) {
           const [tx, ty] = this.targetTile(cx, cy, inp.cx, inp.cy, cls.build.reach);
@@ -811,6 +907,15 @@ export class World {
         }
       }
     }
+  }
+
+  /** 탈것 설치 칸: 커서 칸이 고체면 그 위 칸 (지면을 클릭해도 그 위에 놓인다) */
+  private vehicleSite(p: Player, vd: VehicleDef, cx: number, cy: number, ax: number, ay: number, reach: number): [number, number] {
+    const [tx, ty] = this.targetTile(cx, cy, ax, ay, reach);
+    const vw = px(vd.width), vh = px(vd.height);
+    const vx = (tx << TILE_SHIFT) + (TILE_FP >> 1) - (vw >> 1), vy = ((ty + 1) << TILE_SHIFT) - vh;
+    if (this.collidesAt(vx, vy, vw, vh, p.team) && !this.collidesAt(vx, vy - TILE_FP, vw, vh, p.team)) return [tx, ty - 1];
+    return [tx, ty];
   }
 
   /** 커서 방향으로 reach(px) 이내의 타일 좌표 */
@@ -845,7 +950,7 @@ export class World {
   }
 
   /** 두 점 사이에 고체 타일이 없는가 (끝점 타일 자체는 제외) */
-  private lineClear(team: number, x0: number, y0: number, x1: number, y1: number): boolean {
+  lineClear(team: number, x0: number, y0: number, x1: number, y1: number): boolean {
     const r = this.castRay(team, x0, y0, x1, y1);
     return !r.blocked || (r.tx === toTile(x1) && r.ty === toTile(y1));
   }
@@ -874,6 +979,13 @@ export class World {
     if (item.kind === 'block' && item.tile && cls.build) {
       const [tx, ty] = this.targetTile(cx, cy, p.aimX, p.aimY, cls.build.reach);
       return { tx, ty, ok: this.canBuildAt(p, tileId(item.tile), tx, ty, cx, cy) };
+    }
+    if (item.kind === 'vehicle' && item.vehicle && cls.build) {
+      const vd = VEHICLE_BY_NAME.get(item.vehicle)!;
+      const [tx, ty] = this.vehicleSite(p, vd, cx, cy, p.aimX, p.aimY, cls.build.reach);
+      const vw = px(vd.width), vh = px(vd.height);
+      const vx = (tx << TILE_SHIFT) + (TILE_FP >> 1) - (vw >> 1), vy = ((ty + 1) << TILE_SHIFT) - vh;
+      return { tx, ty, ok: this.canAfford(p, item.cost) && !this.collidesAt(vx, vy, vw, vh, p.team) && this.collidesAt(vx, vy + vh, vw, 256, p.team) };
     }
     return null;
   }
@@ -979,12 +1091,12 @@ export class World {
   private dropResources(q: Player): void {
     const c = CLASSES[q.cls];
     const cx = q.x + (px(c.width) >> 1), cy = q.y + (px(c.height) >> 1);
-    const kinds: [number, number][] = [[DropKind.Wood, q.wood], [DropKind.Stone, q.stone], [DropKind.Gold, q.gold], [DropKind.Bombs, q.bombs], [DropKind.Arrows, q.arrows + q.ammo]];
+    const kinds: [number, number][] = [[DropKind.Wood, q.wood], [DropKind.Stone, q.stone], [DropKind.Iron, q.iron], [DropKind.Bombs, q.bombs], [DropKind.Arrows, q.arrows + q.ammo]];
     for (const [kind, amount] of kinds) {
       if (amount <= 0) continue;
       this.spawnDrop(kind, amount, cx, cy, this.rng.range(-700, 700), -this.rng.range(600, 1400));
     }
-    q.wood = 0; q.stone = 0; q.gold = 0; q.bombs = 0; q.arrows = 0; q.ammo = 0; q.mag = 0;
+    q.wood = 0; q.stone = 0; q.iron = 0; q.bombs = 0; q.arrows = 0; q.ammo = 0; q.mag = 0;
   }
 
   private updateDrops(): void {
@@ -1031,7 +1143,7 @@ export class World {
     switch (d.kind) {
       case DropKind.Wood: { const n = imin(d.amount, 9999 - p.wood); p.wood += n; return n; }
       case DropKind.Stone: { const n = imin(d.amount, 9999 - p.stone); p.stone += n; return n; }
-      case DropKind.Gold: { const n = imin(d.amount, 9999 - p.gold); p.gold += n; return n; }
+      case DropKind.Iron: { const n = imin(d.amount, 9999 - p.iron); p.iron += n; return n; }
       case DropKind.Bombs: { if (!c.bombs) return 0; const n = imin(d.amount, c.bombs - p.bombs); p.bombs += n; return n; }
       case DropKind.Arrows: {
         if (c.gun) { const n = imin(d.amount, c.gun.ammoMax - p.ammo); p.ammo += n; return n; }
@@ -1061,20 +1173,76 @@ export class World {
       const pr = arr[i];
       pr.timer--;
       if (pr.timer <= 0) {
-        if (pr.kind === ProjKind.Bomb) this.explode(pr);
+        if (pr.kind === ProjKind.Bomb || pr.kind === ProjKind.C4 || pr.kind === ProjKind.Claymore || pr.kind === ProjKind.Shell) this.explode(pr);
         arr.splice(i, 1); i--;
+        continue;
+      }
+      if (pr.kind === ProjKind.Shell) {
+        // 포탄: 타일/적에 닿으면 폭발
+        const cn = VEHICLES.find((d) => d.cannon)!.cannon!;
+        pr.vy = imin(pr.vy + cn.gravity, MAX_FALL);
+        const res = this.moveProjectile(pr, false, (x, y) => this.shellHit(pr, x, y));
+        if (res !== 'none') { this.explode(pr); arr.splice(i, 1); i--; }
+        continue;
+      }
+      if (pr.kind === ProjKind.Drone) {
+        // 소유자 중심 + 커서 오프셋으로 비행. 타일에 막히면 그 자리에서 정지. 근처 적 표시
+        const owner = this.getPlayer(pr.owner);
+        const dr = CLASSES[owner?.cls ?? 1].drone ?? CLASSES.find((c) => c.drone)!.drone!;
+        if (owner && owner.state === PlayerState.Alive) {
+          const oc = CLASSES[owner.cls];
+          const tx = owner.x + (px(oc.width) >> 1) + px(owner.aimX), ty = owner.y + (px(oc.height) >> 1) + px(owner.aimY) - px(8);
+          const dx = tx - pr.x, dy = ty - pr.y;
+          const d = vlen(dx, dy);
+          if (d > px(2)) { const [nvx, nvy] = vnorm(dx, dy, imin(dr.speed, d)); pr.vx = idiv(pr.vx * 3 + nvx, 4); pr.vy = idiv(pr.vy * 3 + nvy, 4); }
+          else { pr.vx = idiv(pr.vx, 2); pr.vy = idiv(pr.vy, 2); }
+        } else { pr.vx = idiv(pr.vx, 2); pr.vy = idiv(pr.vy, 2); }
+        this.moveProjectile(pr, true);
+        for (const q of this.players) {
+          if (q.state !== PlayerState.Alive || q.team === pr.team) continue;
+          const c = CLASSES[q.cls];
+          if (vlen(q.x + (px(c.width) >> 1) - pr.x, q.y + (px(c.height) >> 1) - pr.y) <= px(dr.radius)) q.spotTimer = dr.spotTicks;
+        }
+        continue;
+      }
+      if (pr.kind === ProjKind.Claymore && pr.stuck) {
+        const mine = CLASSES.find((c) => c.mine)!.mine!;
+        for (const q of this.players) {
+          if (q.state !== PlayerState.Alive || q.team === pr.team) continue;
+          const c = CLASSES[q.cls];
+          if (vlen(q.x + (px(c.width) >> 1) - pr.x, q.y + (px(c.height) >> 1) - pr.y) <= px(mine.trigger)) { pr.timer = 1; break; }
+        }
+        if (pr.timer === 1) { this.explode(pr); arr.splice(i, 1); i--; continue; }
+      }
+      if (pr.kind === ProjKind.C4 || pr.kind === ProjKind.Claymore) {
+        if (pr.attach) {
+          // 탈것에 붙음: 따라간다. 탈것이 사라지면 떨어진다
+          const v = this.vehicles.find((q) => q.id === pr.attach);
+          if (v) { pr.x = v.x + pr.vx; pr.y = v.y + pr.vy; continue; }
+          pr.attach = 0; pr.stuck = false; pr.vx = 0; pr.vy = 0;
+        }
+        if (pr.stuck) {
+          // 붙어 있던 타일이 없어지면 떨어진다
+          const tx = toTile(pr.x), ty = toTile(pr.y);
+          if (!(this.map.isSolid(tx - 1, ty) || this.map.isSolid(tx + 1, ty) || this.map.isSolid(tx, ty - 1) || this.map.isSolid(tx, ty + 1))) pr.stuck = false;
+          continue;
+        }
+        pr.vy = imin(pr.vy + GRAVITY, MAX_FALL);
+        const res = this.moveProjectile(pr, false, (x, y) => this.c4Attach(pr, x, y));
+        if (res === 'tile') pr.stuck = true;
         continue;
       }
       if (pr.stuck) continue;
       if (pr.kind === ProjKind.Bullet) {
-        pr.vy = imin(pr.vy + (CLASSES[0].gun?.gravity ?? 6), MAX_FALL);
+        const gun = CLASSES[this.getPlayer(pr.owner)?.cls ?? 0].gun ?? CLASSES[0].gun!;
+        pr.vy = imin(pr.vy + gun.gravity, MAX_FALL);
         const res = this.moveProjectile(pr, false, (x, y) => this.arrowHitPlayer(pr, x, y));
         if (res === 'hitPlayer') { arr.splice(i, 1); i--; continue; }
         if (res === 'tile') {
           // 맞은 타일에 작은 피해 (흙 등 약한 타일만 서서히 깎임)
           const tx = toTile(pr.x + isign(pr.vx) * 64), ty = toTile(pr.y + isign(pr.vy) * 64);
           const t = this.map.get(tx, ty);
-          if (t !== T_AIR && TILE_TABLE[t].hp > 0 && TILE_TABLE[t].hp <= 8) { const destroyed = this.map.damage(tx, ty, CLASSES[0].gun?.tileDamage ?? 1); if (destroyed) this.yieldTile(null, TILE_TABLE[t], tx, ty); }
+          if (t !== T_AIR && TILE_TABLE[t].hp > 0 && TILE_TABLE[t].hp <= 8 && !TILE_TABLE[t].bulletproof) { const destroyed = this.map.damage(tx, ty, gun.tileDamage); if (destroyed) this.yieldTile(null, TILE_TABLE[t], tx, ty); }
           this.events.push({ kind: 'dig', x: pr.x, y: pr.y, tile: t });
           arr.splice(i, 1); i--; continue;
         }
@@ -1093,10 +1261,26 @@ export class World {
     }
   }
 
+  /** 포탄이 (x,y) 에서 적 플레이어/탈것과 겹치는가 (피해는 폭발이 준다) */
+  private shellHit(pr: Projectile, x: number, y: number): boolean {
+    for (const q of this.players) {
+      if (q.state !== PlayerState.Alive || q.team === pr.team || q.vehicle) continue;
+      const c = CLASSES[q.cls];
+      if (aabbOverlap(x - 128, y - 128, 256, 256, q.x, q.y, px(c.width), px(c.height))) return true;
+    }
+    for (const v of this.vehicles) {
+      if (v.team === pr.team) continue;
+      const d = vehicleDef(v);
+      if (aabbOverlap(x - 128, y - 128, 256, 256, v.x, v.y, px(d.width), px(d.height))) return true;
+    }
+    return false;
+  }
+
   /** 화살이 (x,y) 에서 적 플레이어와 겹치면 피해를 주고 true. 방패에 막히면 튕기고 false. */
   private arrowHitPlayer(pr: Projectile, x: number, y: number): boolean {
     for (const q of this.players) {
       if (q.state !== PlayerState.Alive || q.team === pr.team) continue;
+      if (isShielded(this, q)) continue; // 장갑차 운전석: 차체가 대신 맞는다
       const c = CLASSES[q.cls];
       if (!aabbOverlap(x - 128, y - 128, 256, 256, q.x, q.y, px(c.width), px(c.height))) continue;
       if (q.shield && isign(pr.vx) === -q.facing) {
@@ -1111,7 +1295,17 @@ export class World {
       if (v.team === pr.team) continue;
       const d = vehicleDef(v);
       if (!aabbOverlap(x - 128, y - 128, 256, 256, v.x, v.y, px(d.width), px(d.height))) continue;
+      if (d.armor) { this.events.push({ kind: 'hit', x, y, player: -1, team: -1 }); return true; } // 장갑: 튕김
       damageVehicle(this, v, pr.damage, pr.owner);
+      return true;
+    }
+    // 적 드론 격추 (damage = 남은 hp)
+    for (const q of this.projectiles) {
+      if (q.kind !== ProjKind.Drone || q.team === pr.team) continue;
+      if (!aabbOverlap(x - 128, y - 128, 256, 256, q.x - px(3), q.y - px(2), px(6), px(4))) continue;
+      q.damage -= pr.damage;
+      this.events.push({ kind: 'hit', x: q.x, y: q.y, player: -1, team: -1 });
+      if (q.damage <= 0) q.timer = 1;
       return true;
     }
     return false;
@@ -1144,10 +1338,38 @@ export class World {
     return hit ? 'tile' : 'none';
   }
 
+  private liveC4(pid: number): number {
+    let n = 0;
+    for (const pr of this.projectiles) if (pr.kind === ProjKind.C4 && pr.owner === pid) n++;
+    return n;
+  }
+
+  /** 소유자의 C4 전부 기폭 */
+  private detonate(pid: number): void {
+    const arr = this.projectiles;
+    for (let i = 0; i < arr.length; i++) {
+      const pr = arr[i];
+      if (pr.kind === ProjKind.C4 && pr.owner === pid) { this.explode(pr); arr.splice(i, 1); i--; }
+    }
+  }
+
+  /** C4 가 (x,y) 에서 탈것에 닿으면 붙이고 true (팀 무관 — 아군 차량에 붙여 자폭 트랩도 가능) */
+  private c4Attach(pr: Projectile, x: number, y: number): boolean {
+    for (const v of this.vehicles) {
+      const d = vehicleDef(v);
+      if (!aabbOverlap(x - 128, y - 128, 256, 256, v.x, v.y, px(d.width), px(d.height))) continue;
+      pr.attach = v.id; pr.stuck = true;
+      pr.vx = x - v.x; pr.vy = y - v.y;
+      return true;
+    }
+    return false;
+  }
+
   private explode(pr: Projectile): void {
     const cls = CLASSES[0];
-    const radius = px(cls.bombRadius ?? 28);
-    const tileDmg = cls.bombTileDamage ?? 6;
+    const c4 = pr.kind === ProjKind.C4 ? CLASSES.find((c) => c.c4)?.c4 : pr.kind === ProjKind.Claymore ? CLASSES.find((c) => c.mine)?.mine : pr.kind === ProjKind.Shell ? VEHICLES.find((d) => d.cannon)?.cannon : undefined;
+    const radius = px(c4?.radius ?? cls.bombRadius ?? 28);
+    const tileDmg = c4?.tileDamage ?? cls.bombTileDamage ?? 6;
     this.events.push({ kind: 'explode', x: pr.x, y: pr.y });
     // 플레이어 피해 (거리 비례)
     for (const q of this.players) {

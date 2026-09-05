@@ -75,16 +75,26 @@ describe('combat rules', () => {
     expect(b.hp).toBeGreaterThan(0);
   });
 
-  it('archer arrow hits enemy; bomb explodes and destroys tiles', () => {
+  it('marksman: bolt-action sniper fires once per click, scoping steadies the aim and slows movement; grenade explodes and destroys tiles', () => {
     const w = setup();
     const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
-    a.cls = 1; a.arrows = 10; a.slot = 0;
+    a.cls = 1; a.slot = 0; a.mag = 5; a.ammo = 25; a.spread = 50;
     const hp0 = b.hp;
-    run(w, 20, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 } }); // 당김
-    run(w, 1, { 1: { ...EMPTY_INPUT, cx: 10 } }); // 발사
+    run(w, 10, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 } }); // 홀드해도 1발
+    expect(a.mag).toBe(4);
     run(w, 10, { 1: { ...EMPTY_INPUT, cx: 10 } });
     expect(b.hp).toBeLessThan(hp0);
-    expect(a.arrows).toBe(9);
+    // 조준: 퍼짐 수렴 + 느려짐
+    run(w, 30, { 1: { buttons: BTN_ACTION2, cx: 10, cy: 0, slot: 0, cls: 3 } });
+    expect(a.scope).toBe(CLASSES[1].gun!.scope!.steadyTicks);
+    const x0 = a.x;
+    run(w, 30, { 1: { buttons: BTN_ACTION2 | 2, cx: 10, cy: 0, slot: 0, cls: 3 } });
+    const scopedDist = a.x - x0;
+    run(w, 20, { 1: { ...EMPTY_INPUT, cx: 10 } });
+    const x1 = a.x;
+    run(w, 30, { 1: { buttons: 2, cx: 10, cy: 0, slot: 0, cls: 3 } });
+    expect(a.x - x1).toBeGreaterThan(scopedDist * 2);
+    a.cls = 0; a.arrows = 9;
 
     // 폭탄
     a.cls = 0; a.bombs = 2; a.slot = 1;
@@ -99,20 +109,20 @@ describe('combat rules', () => {
     expect(solidAfter).toBeLessThan(solidBefore);
   });
 
-  it('builder digs and builds with resources; team door passable only for own team', () => {
+  it('engineer digs and builds with resources; team door passable only for own team', () => {
     const w = setup();
     const a = w.getPlayer(1)!;
     a.cls = 2; a.slot = 0;
-    // 나무 블록 설치 (자원 지급)
-    a.wood = 100;
+    // 돌 블록 설치 (자원 지급)
+    a.stone = 100;
     const before = w.map.type.reduce((s, t) => s + (t ? 1 : 0), 0);
-    run(w, 3, { 1: { buttons: BTN_ACTION1, cx: 24, cy: 2, slot: 1, cls: 3 } });
+    run(w, 3, { 1: { buttons: BTN_ACTION1, cx: 24, cy: 2, slot: 3, cls: 3 } });
     expect(w.map.type.reduce((s, t) => s + (t ? 1 : 0), 0)).toBeGreaterThan(before);
-    expect(a.wood).toBe(90);
+    expect(a.stone).toBe(70);
     // 문
-    a.wood = 100;
-    run(w, 12, { 1: { buttons: BTN_ACTION1, cx: 22, cy: -6, slot: 4, cls: 3 } });
-    const doorIdx = w.map.type.findIndex((t) => t === 11);
+    a.stone = 100;
+    run(w, 12, { 1: { buttons: BTN_ACTION1, cx: 22, cy: -6, slot: 6, cls: 3 } });
+    const doorIdx = w.map.type.findIndex((t) => t === 12);
     expect(doorIdx).toBeGreaterThanOrEqual(0);
     const dx = doorIdx % w.map.w, dy = (doorIdx / w.map.w) | 0;
     expect(w.map.solidFor(dx, dy, 0)).toBe(false);
@@ -228,23 +238,23 @@ describe('combat rules', () => {
     if (w2.map.get(lx, ly - 1) === T_AIR) expect(w2.map.canPlace(lx, ly - 1)).toBe(false);
   });
 
-  it('workshop: buy with gold, heal while standing; players push each other apart', () => {
+  it('workshop: buy with iron, heal while standing; players push each other apart', () => {
     const w = setup();
     const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
     // 작업장 타일을 a 의 발 밑 칸에 (플레이어와 겹치는 비고체 타일)
     const tx = (a.x + px(3)) >> 11, ty = (a.y + px(7)) >> 11;
     w.map.set(tx, ty, tileId('workshop'));
-    a.gold = 5; a.ammo = 0; a.hp = 4;
+    a.iron = 5; a.ammo = 0; a.hp = 4;
     run(w, 1, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
     expect(a.ammo).toBe(60);
-    expect(a.gold).toBe(3);
+    expect(a.iron).toBe(3);
     // 홀드는 재구매 없음, 다시 눌러야 구매
     run(w, 5, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
     expect(a.ammo).toBe(60);
     run(w, 1, {});
     run(w, 1, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
     expect(a.ammo).toBe(120);
-    expect(a.gold).toBe(1);
+    expect(a.iron).toBe(1);
     run(w, 1, {}); run(w, 1, { 1: { buttons: BTN_USE, cx: 0, cy: 0, slot: 0, cls: 3 } });
     expect(a.ammo).toBe(120); // 금 부족
     // 회복
@@ -291,7 +301,7 @@ describe('combat rules', () => {
   it('death drops carried resources; survivors can pick them up', () => {
     const w = setup();
     const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
-    b.wood = 40; b.stone = 30; b.gold = 5;
+    b.wood = 40; b.stone = 30; b.iron = 5;
     // b 를 검으로 죽임
     const bx = b.x, by = b.y;
     for (let k = 0; k < 6 && b.state === PlayerState.Alive; k++) {
@@ -299,7 +309,7 @@ describe('combat rules', () => {
       run(w, 14, { 1: { buttons: BTN_ACTION1, cx: 10, cy: 0, slot: 0, cls: 3 } });
     }
     expect(b.state).toBe(PlayerState.Dead);
-    expect(b.wood + b.stone + b.gold).toBe(0);
+    expect(b.wood + b.stone + b.iron).toBe(0);
     expect(w.drops.length).toBe(5); // 나무/돌/금 + 수류탄 + 탄약
     // a 가 드롭 위로 이동해 줍기 (드롭이 땅에 떨어질 때까지 진행)
     run(w, 40, {});
@@ -308,7 +318,7 @@ describe('combat rules', () => {
     run(w, 2, {});
     expect(w.drops.length).toBe(0);
     expect(a.bombs).toBeGreaterThan(0);
-    expect(a.wood).toBe(40); expect(a.stone).toBe(30); expect(a.gold).toBe(5);
+    expect(a.wood).toBe(40); expect(a.stone).toBe(30); expect(a.iron).toBe(5);
   });
 
   it('water: conserved while flowing, fills a dug hole from the lake, player swims and can drown', () => {
@@ -461,17 +471,40 @@ describe('vehicles', () => {
     expect(v.driver).toBe(0);
   });
 
-  it('vehicle takes arrow damage and respawns after destruction', () => {
+  it('APC: armor deflects bullets and arrows, explosions hurt it; gunner seat fires the MG; respawns after destruction', () => {
     const w = setup();
+    const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
     const v = w.vehicles.find((v) => v.team === 1)!;
     const before = w.vehicles.length;
-    v.hp = 1;
-    w.projectiles.push({ id: 99, kind: 0, owner: 1, team: 0, x: v.x - px(4), y: v.y + px(4), vx: 600, vy: 0, timer: 100, damage: 2, stuck: false });
+    const hp0 = v.hp;
+    w.projectiles.push({ id: 99, kind: 0, owner: 1, team: 0, x: v.x - px(4), y: v.y + px(4), vx: 600, vy: 0, timer: 100, damage: 2, stuck: false, attach: 0 });
+    w.projectiles.push({ id: 98, kind: 2, owner: 1, team: 0, x: v.x - px(4), y: v.y + px(5), vx: 800, vy: 0, timer: 100, damage: 2, stuck: false, attach: 0 });
     run(w, 3, {});
+    expect(v.hp).toBe(hp0); // 장갑
+    expect(w.projectiles.length).toBe(0); // 튕겨 사라짐
+    w.projectiles.push({ id: 97, kind: 1, owner: 1, team: 0, x: v.x + px(14), y: v.y - px(2), vx: 0, vy: 0, timer: 1, damage: 10, stuck: false, attach: 0 });
+    run(w, 2, {});
+    expect(v.hp).toBeLessThan(hp0); // 폭발은 통함
+    // 포수: a 가 운전석, b 팀 차량이 아니므로 a 팀 차량으로 테스트
+    const mine = w.vehicles.find((v) => v.team === 0)!;
+    a.x = mine.x; a.y = mine.y - px(14); a.vx = 0; a.vy = 0;
+    run(w, 2, {});
+    run(w, 1, { 1: { ...EMPTY_INPUT, buttons: BTN_USE } });
+    expect(mine.driver).toBe(a.id);
+    b.team = 0; b.x = mine.x + px(4); b.y = mine.y - px(14); b.vx = 0; b.vy = 0;
+    run(w, 2, {});
+    run(w, 1, { 2: { ...EMPTY_INPUT, buttons: BTN_USE } });
+    expect(mine.gunner).toBe(b.id);
+    run(w, 10, { 2: { buttons: BTN_ACTION1, cx: 20, cy: 0, slot: 0, cls: 3 } });
+    expect(w.projectiles.filter((q) => q.kind === 2 && q.owner === b.id).length).toBeGreaterThan(0);
+    // 파괴 → 둘 다 내리고 재생성 예약
+    mine.hp = 0;
+    run(w, 1, {});
+    expect(a.vehicle).toBe(0); expect(b.vehicle).toBe(0);
     expect(w.vehicles.length).toBe(before - 1);
-    expect(w.vehicleRespawnAt[1]).toBeGreaterThan(0);
-    run(w, 901, {});
-    expect(w.vehicles.length).toBe(before);
+    expect(w.vehicleRespawnAt[0]).toBeGreaterThan(0);
+    run(w, 1201, {});
+    expect(w.vehicles.filter((v) => v.kind === 0).length).toBe(2);
   });
 });
 
@@ -623,5 +656,214 @@ describe('ladders', () => {
     // S 로 내려감
     run(w, 20, { 1: { ...EMPTY_INPUT, buttons: 8 } });
     expect((a.y + px(14)) >> 11).toBeGreaterThan(gy - 6);
+  });
+});
+
+describe('engineer: C4, steel plate, barbed wire', () => {
+  const flatten = (w: World, x0: number, groundY: number, width: number): void => {
+    for (let x = x0; x < x0 + width; x++) { for (let y = groundY - 8; y < groundY; y++) w.map.set(x, y, 0); w.map.set(x, groundY, 3); w.map.set(x, groundY + 1, 3); }
+  };
+  it('C4 sticks to a wall, detonates on RMB, breaks stone blocks but never the dirt back wall', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!;
+    a.cls = 2; a.c4 = 3; a.slot = 1;
+    const gx = a.x >> 11, gy = (a.y >> 11) + 2;
+    flatten(w, gx - 4, gy, 20);
+    // 오른쪽 4칸에 돌 블록 기둥
+    for (let y = gy - 4; y < gy; y++) { w.map.set(gx + 4, y, 9); w.map.setBack(gx + 4, y, T_DIRT_BACK); }
+    run(w, 5, {});
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 20, cy: -2, slot: 1, cls: 3 } });
+    expect(a.c4).toBe(2);
+    expect(w.projectiles.filter((p) => p.kind === 3).length).toBe(1);
+    run(w, 40, { 1: { ...EMPTY_INPUT, cx: 20, slot: 1 } });
+    const c = w.projectiles.find((p) => p.kind === 3)!;
+    expect(c.stuck).toBe(true);
+    const blocksBefore = w.map.type.filter((t) => t === 9).length;
+    run(w, 1, { 1: { buttons: BTN_ACTION2, cx: 20, cy: 0, slot: 1, cls: 3 } });
+    expect(w.projectiles.filter((p) => p.kind === 3).length).toBe(0);
+    expect(w.map.type.filter((t) => t === 9).length).toBeLessThan(blocksBefore);
+    // 뒷벽은 그대로
+    for (let y = gy - 4; y < gy; y++) expect(w.map.getBack(gx + 4, y)).toBe(T_DIRT_BACK);
+  });
+
+  it('at most `live` charges can be placed; C4 attaches to a vehicle and follows it', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!;
+    a.cls = 2; a.c4 = 6; a.slot = 1;
+    const v = w.vehicles.find((v) => v.team === 0)!;
+    a.x = v.x - px(12); a.y = v.y - px(6); a.vx = 0; a.vy = 0;
+    for (let i = 0; i < 5; i++) {
+      run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 20, cy: 0, slot: 1, cls: 3 } });
+      run(w, 14, { 1: { ...EMPTY_INPUT, cx: 20, slot: 1 } });
+    }
+    const live = w.projectiles.filter((p) => p.kind === 3);
+    expect(live.length).toBe(CLASSES[2].c4!.live);
+    const attached = live.filter((p) => p.attach === v.id);
+    expect(attached.length).toBeGreaterThan(0);
+    const dx = attached[0].x - v.x;
+    v.x += px(20);
+    run(w, 1, {});
+    expect(attached[0].x - v.x).toBe(dx);
+  });
+
+  it('steel plate ignores bullets; barbed wire slows and hurts a player walking through it', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
+    const gx = a.x >> 11, gy = (a.y >> 11) + 2;
+    flatten(w, gx - 4, gy, 30);
+    b.x = a.x + px(80); b.y = a.y; // 멀리
+    // 철판 벽
+    const plate = tileId('steel_plate');
+    for (let y = gy - 3; y < gy; y++) w.map.set(gx + 5, y, plate);
+    const hp0 = w.map.hp[(gy - 2) * w.map.w + gx + 5];
+    run(w, 40, { 1: { buttons: BTN_ACTION1, cx: 30, cy: 0, slot: 0, cls: 3 } });
+    expect(w.map.get(gx + 5, gy - 2)).toBe(plate);
+    expect(w.map.hp[(gy - 2) * w.map.w + gx + 5]).toBe(hp0);
+    // 철조망 위를 걷기: 느리고 피해
+    const wire = tileId('barbed_wire');
+    for (let x = gx - 3; x < gx + 4; x++) w.map.set(x, gy - 1, wire);
+    a.x = (gx - 3) << 11; a.hp = 8; a.vx = 0;
+    run(w, 30, { 1: { ...EMPTY_INPUT, buttons: 2 } });
+    const wireDist = a.x - ((gx - 3) << 11);
+    expect(a.hp).toBeLessThan(8);
+    for (let x = gx - 3; x < gx + 4; x++) w.map.set(x, gy - 1, 0);
+    a.x = (gx - 3) << 11; a.vx = 0; a.hurtTimer = 0;
+    run(w, 30, { 1: { ...EMPTY_INPUT, buttons: 2 } });
+    expect(a.x - ((gx - 3) << 11)).toBeGreaterThan(wireDist * 2);
+  });
+
+  it('engineer buys C4 at the supply depot with iron', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!;
+    a.cls = 2; a.c4 = 0; a.iron = 5;
+    w.vehicles.length = 0; // 옆의 수레에 타지 않도록
+    const shopIdx = w.map.type.findIndex((t) => t === 17);
+    a.x = (shopIdx % w.map.w) << 11; a.y = (((shopIdx / w.map.w) | 0) - 1) << 11; a.vx = 0; a.vy = 0;
+    run(w, 1, {});
+    run(w, 1, { 1: { ...EMPTY_INPUT, buttons: BTN_USE } });
+    expect(a.c4).toBe(1);
+    expect(a.iron).toBe(1);
+    run(w, 1, {});
+    run(w, 1, { 1: { ...EMPTY_INPUT, buttons: BTN_USE } });
+    expect(a.c4).toBe(1); // 철 부족
+  });
+});
+
+describe('marksman: recon drone and claymore', () => {
+  it('drone flies toward the cursor, spots nearby enemies (minimap), can be shot down', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
+    a.cls = 1; a.drones = 2; a.slot = 1;
+    b.x = a.x + px(60); b.y = a.y - px(30); b.vx = 0; b.vy = 0;
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 60, cy: -30, slot: 1, cls: 3 } });
+    expect(a.drones).toBe(1);
+    const d = w.projectiles.find((q) => q.kind === 4)!;
+    expect(d).toBeTruthy();
+    const dist0 = Math.hypot(d.x - b.x, d.y - b.y);
+    for (let i = 0; i < 60; i++) { b.x = a.x + px(60); b.y = a.y - px(30); b.vy = 0; run(w, 1, { 1: { ...EMPTY_INPUT, cx: 60, cy: -30, slot: 1 } }); }
+    expect(Math.hypot(d.x - b.x, d.y - b.y)).toBeLessThan(dist0);
+    expect(b.spotTimer).toBeGreaterThan(0);
+    // 두 번째 드론은 첫 드론이 있는 동안 못 띄움
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 60, cy: -30, slot: 1, cls: 3 } });
+    expect(a.drones).toBe(1);
+    // 격추: 적 총알
+    w.projectiles.push({ id: 999, kind: 2, owner: 2, team: 1, x: d.x - px(3), y: d.y, vx: 800, vy: 0, timer: 30, damage: 6, stuck: false, attach: 0 });
+    run(w, 3, {});
+    expect(w.projectiles.some((q) => q.kind === 4)).toBe(false);
+  });
+
+  it('claymore sticks and explodes when an enemy walks into its trigger range', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
+    a.cls = 1; a.mines = 2; a.slot = 2;
+    b.x = a.x + px(70); b.y = a.y; b.vx = 0;
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 12, cy: -2, slot: 2, cls: 3 } });
+    expect(a.mines).toBe(1);
+    run(w, 40, { 1: { ...EMPTY_INPUT, cx: 12, slot: 2 } });
+    const m = w.projectiles.find((q) => q.kind === 5)!;
+    expect(m.stuck).toBe(true);
+    const hp0 = b.hp;
+    b.x = m.x - px(4); b.y = m.y - px(8); b.vx = 0; b.vy = 0;
+    run(w, 2, {});
+    expect(w.projectiles.some((q) => q.kind === 5)).toBe(false);
+    expect(b.hp).toBeLessThan(hp0);
+  });
+});
+
+describe('engineer: auto turret', () => {
+  it('is built with iron on solid ground, shoots enemies in line of sight, ignores allies, limited per team, drops scrap when destroyed', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
+    a.cls = 2; a.iron = 30; a.slot = 2;
+    const gx = a.x >> 11, gy = (a.y >> 11) + 2;
+    for (let x = gx - 6; x < gx + 30; x++) { for (let y = gy - 8; y < gy; y++) w.map.set(x, y, 0); w.map.set(x, gy, 3); w.map.set(x, gy + 1, 3); }
+    b.x = a.x + px(120); b.y = a.y; b.vx = 0; b.vy = 0; // 사거리 밖
+    run(w, 3, {});
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 16, cy: 0, slot: 2, cls: 3 } });
+    const turrets = () => w.vehicles.filter((v) => v.kind === 1);
+    expect(turrets().length).toBe(1);
+    expect(a.iron).toBe(22);
+    // 공중에는 설치 불가
+    run(w, 1, {});
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 16, cy: -30, slot: 2, cls: 3 } });
+    expect(turrets().length).toBe(1);
+    // 아군은 쏘지 않는다
+    const hpA = a.hp;
+    run(w, 40, {});
+    expect(a.hp).toBe(hpA);
+    expect(w.projectiles.filter((q) => q.kind === 2).length).toBe(0);
+    // 적이 사거리 안으로 → 조준 후 사격
+    b.x = a.x + px(50); b.y = a.y; b.vx = 0;
+    const hpB = b.hp;
+    for (let i = 0; i < 60; i++) { b.x = a.x + px(50); b.y = a.y; b.vy = 0; run(w, 1, {}); }
+    expect(b.hp).toBeLessThan(hpB);
+    // 팀당 상한
+    a.iron = 100;
+    for (let i = 0; i < 5; i++) { run(w, 1, {}); run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 16 + i * 10, cy: 0, slot: 2, cls: 3 } }); }
+    expect(turrets().length).toBeLessThanOrEqual(3);
+    // 파괴 → 고철
+    const t = turrets()[0]; t.hp = 0;
+    const dropsBefore = w.drops.length;
+    run(w, 1, {});
+    expect(turrets().length).toBeLessThan(3 + 1);
+    expect(w.drops.length).toBeGreaterThan(dropsBefore);
+    expect(w.vehicleRespawnAt[0]).toBe(0);
+  });
+});
+
+describe('tank', () => {
+  it('engineer builds a tank with iron (1 per team); driver fires an exploding shell with LMB; shells destroy tiles and hurt', () => {
+    const w = setup();
+    const a = w.getPlayer(1)!, b = w.getPlayer(2)!;
+    a.cls = 2; a.iron = 100; a.slot = 9;
+    const gx = a.x >> 11, gy = (a.y >> 11) + 2;
+    for (let x = gx - 6; x < gx + 40; x++) { for (let y = gy - 10; y < gy; y++) w.map.set(x, y, 0); w.map.set(x, gy, 3); w.map.set(x, gy + 1, 3); }
+    b.x = a.x + px(150); b.y = a.y; b.vx = 0; b.vy = 0;
+    w.vehicles.length = 0; // 기지 장갑차 제거 (자리 확보)
+    run(w, 3, {});
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 22, cy: 4, slot: 9, cls: 3 } });
+    const tank = w.vehicles.find((v) => v.kind === 2)!;
+    expect(tank).toBeTruthy();
+    expect(a.iron).toBe(60);
+    run(w, 1, {});
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 22, cy: 4, slot: 9, cls: 3 } });
+    expect(w.vehicles.filter((v) => v.kind === 2).length).toBe(1); // 팀당 1대
+    // 탑승 + 주포 (오른쪽 아래 지면으로)
+    a.x = tank.x + px(8); a.y = tank.y - px(14); a.vx = 0; a.vy = 0;
+    run(w, 2, {});
+    run(w, 1, { 1: { ...EMPTY_INPUT, buttons: BTN_USE } });
+    expect(tank.driver).toBe(a.id);
+    run(w, 10, {});
+    const solidBefore = w.map.type.reduce((s, t) => s + (t ? 1 : 0), 0);
+    run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 60, cy: 20, slot: 0, cls: 3 } });
+    expect(w.projectiles.filter((q) => q.kind === 6).length).toBe(1);
+    run(w, 60, {});
+    expect(w.projectiles.filter((q) => q.kind === 6).length).toBe(0);
+    expect(w.map.type.reduce((s, t) => s + (t ? 1 : 0), 0)).toBeLessThan(solidBefore);
+    // 적을 직접 맞히면 폭발 피해
+    b.x = tank.x + px(70); b.y = tank.y - px(2); b.vx = 0; b.vy = 0;
+    const hp0 = b.hp;
+    for (let i = 0; i < 70; i++) { b.x = tank.x + px(70); b.y = tank.y - px(2); b.vy = 0; run(w, 1, { 1: { buttons: BTN_ACTION1, cx: 60, cy: 0, slot: 0, cls: 3 } }); }
+    expect(b.hp).toBeLessThan(hp0);
   });
 });

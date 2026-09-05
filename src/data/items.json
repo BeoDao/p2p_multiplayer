@@ -3,16 +3,23 @@
   "items": [
     { "id": "rifle", "label": "Assault rifle", "labels": {"ja": "アサルトライフル", "ru": "Штурмовая винтовка", "zh": "突击步枪", "ar": "بندقية هجومية"}, "kind": "weapon", "part": "weapon_rifle", "icon": "icon_rifle", "ox": 1 },
     { "id": "grenade", "label": "Grenade", "labels": {"ja": "手榴弾", "ru": "Граната", "zh": "手榴弹", "ar": "قنبلة يدوية"}, "kind": "weapon", "part": "weapon_grenade", "icon": "icon_grenade" },
-    { "id": "bow", "label": "Bow", "labels": {"ja": "弓", "ru": "Лук", "zh": "弓", "ar": "قوس"},        "kind": "weapon", "part": "weapon_bow",     "icon": "icon_bow", "rot": 90, "ox": 2 },
+    { "id": "c4", "label": "C4 charge", "labels": {"ja": "C4爆薬", "ru": "Заряд C4", "zh": "C4炸药", "ar": "عبوة C4"}, "kind": "weapon", "part": "weapon_c4", "icon": "icon_c4" },
+    { "id": "sniper", "label": "Sniper rifle", "labels": {"ja": "狙撃銃", "ru": "Снайперская винтовка", "zh": "狙击步枪", "ar": "بندقية قنص"}, "kind": "weapon", "part": "weapon_sniper", "icon": "icon_sniper", "ox": 1 },
+    { "id": "drone", "label": "Recon drone", "labels": {"ja": "偵察ドローン", "ru": "Разведдрон", "zh": "侦察无人机", "ar": "طائرة استطلاع"}, "kind": "weapon", "part": "weapon_drone", "icon": "icon_drone" },
+    { "id": "claymore", "label": "Claymore", "labels": {"ja": "クレイモア", "ru": "Мина Клеймор", "zh": "阔剑地雷", "ar": "لغم كليمور"}, "kind": "weapon", "part": "weapon_claymore", "icon": "icon_claymore" },
     { "id": "pickaxe", "label": "Pickaxe", "labels": {"ja": "つるはし", "ru": "Кирка", "zh": "镐", "ar": "معول"},    "kind": "weapon", "part": "weapon_pickaxe", "icon": "icon_pickaxe" },
     { "id": "wood_block", "label": "Wood block", "labels": {"ja": "木ブロック", "ru": "Деревянный блок", "zh": "木块", "ar": "كتلة خشب"}, "kind": "block",  "tile": "wood_block",  "cost": { "wood": 10 },  "icon": "wood_block" },
-    { "id": "stone_block", "label": "Stone block", "labels": {"ja": "石ブロック", "ru": "Каменный блок", "zh": "石块", "ar": "كتلة حجر"},   "kind": "block",  "tile": "stone_block", "cost": { "stone": 30 }, "icon": "stone_block" },
+    { "id": "stone_block", "label": "Concrete block", "labels": {"ja": "コンクリートブロック", "ru": "Бетонный блок", "zh": "混凝土块", "ar": "كتلة خرسانية"},   "kind": "block",  "tile": "stone_block", "cost": { "stone": 30 }, "icon": "stone_block" },
     { "id": "ladder", "label": "Ladder", "labels": {"ja": "はしご", "ru": "Лестница", "zh": "梯子", "ar": "سلّم"},    "kind": "block",  "tile": "ladder",      "cost": { "wood": 10 },  "icon": "ladder" },
     { "id": "wood_door", "label": "Wood door", "labels": {"ja": "木の扉", "ru": "Деревянная дверь", "zh": "木门", "ar": "باب خشبي"},   "kind": "block",  "tile": "wood_door",   "cost": { "wood": 30 },  "icon": "wood_door" },
-    { "id": "stone_door", "label": "Stone door", "labels": {"ja": "石の扉", "ru": "Каменная дверь", "zh": "石门", "ar": "باب حجري"},     "kind": "block",  "tile": "stone_door",  "cost": { "stone": 50 }, "icon": "stone_door" },
+    { "id": "stone_door", "label": "Blast door", "labels": {"ja": "防爆扉", "ru": "Бронедверь", "zh": "防爆门", "ar": "باب مصفح"},     "kind": "block",  "tile": "stone_door",  "cost": { "stone": 50 }, "icon": "stone_door" },
     { "id": "spikes", "label": "Spikes", "labels": {"ja": "トゲ", "ru": "Шипы", "zh": "尖刺", "ar": "أشواك"},      "kind": "block",  "tile": "spikes",      "cost": { "stone": 30 }, "icon": "spikes" },
     { "id": "wood_back", "label": "Wood wall", "labels": {"ja": "木の背景壁", "ru": "Деревянная стена", "zh": "木背景墙", "ar": "جدار خشبي"}, "kind": "block",  "tile": "wood_back",   "cost": { "wood": 5 },   "icon": "wood_back" },
-    { "id": "workshop", "label": "Workshop", "labels": {"ja": "作業場", "ru": "Мастерская", "zh": "工坊", "ar": "ورشة"},    "kind": "block",  "tile": "workshop",    "cost": { "wood": 50, "stone": 20 }, "icon": "workshop" },
-    { "id": "stone_back", "label": "Stone wall", "labels": {"ja": "石の背景壁", "ru": "Каменная стена", "zh": "石背景墙", "ar": "جدار حجري"},   "kind": "block",  "tile": "stone_back",  "cost": { "stone": 10 }, "icon": "stone_back" }
+    { "id": "workshop", "label": "Supply depot", "labels": {"ja": "補給所", "ru": "Склад снабжения", "zh": "补给站", "ar": "مستودع الإمداد"},    "kind": "block",  "tile": "workshop",    "cost": { "wood": 50, "stone": 20 }, "icon": "workshop" },
+    { "id": "steel_plate", "label": "Steel plate", "labels": {"ja": "鋼板", "ru": "Стальная плита", "zh": "钢板", "ar": "لوح فولاذي"}, "kind": "block", "tile": "steel_plate", "cost": { "iron": 6 }, "icon": "steel_plate" },
+    { "id": "barbed_wire", "label": "Barbed wire", "labels": {"ja": "鉄条網", "ru": "Колючая проволока", "zh": "铁丝网", "ar": "سلك شائك"}, "kind": "block", "tile": "barbed_wire", "cost": { "iron": 2 }, "icon": "barbed_wire" },
+    { "id": "turret", "label": "Auto turret", "labels": {"ja": "自動砲塔", "ru": "Автотурель", "zh": "自动炮塔", "ar": "برج آلي"}, "kind": "vehicle", "vehicle": "turret", "cost": { "iron": 8 }, "icon": "icon_turret" },
+    { "id": "tank", "label": "Tank", "labels": {"ja": "戦車", "ru": "Танк", "zh": "坦克", "ar": "دبابة"}, "kind": "vehicle", "vehicle": "tank", "cost": { "iron": 40 }, "icon": "icon_tank" },
+    { "id": "stone_back", "label": "Concrete wall", "labels": {"ja": "コンクリート背景壁", "ru": "Бетонная стена", "zh": "混凝土背景墙", "ar": "جدار خرساني"},   "kind": "block",  "tile": "stone_back",  "cost": { "stone": 10 }, "icon": "stone_back" }
   ]
 }

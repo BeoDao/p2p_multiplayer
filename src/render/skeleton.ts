@@ -155,19 +155,21 @@ export class Skeleton {
       if (this.overlayTime >= oc.len) this.overlayClip = null;
       else for (const [name, track] of Object.entries(oc.tracks)) rot.set(name, sampleTrack(track, this.overlayTime));
     }
+    const absRot = new Map<Bone, number>(); // 부모까지 누적된 회전 (조준 본이 부모 자세와 무관하게 절대 각도를 향하도록)
     for (const bone of this.boneList) {
       const name = bone.def.name;
       let target = ((rot.get(name) ?? 0) * Math.PI) / 180;
       if (this.aim && this.aim.bones.includes(name)) {
         // 본의 길이 방향은 +y(아래). 오른쪽(0rad)을 향하려면 -90도. facing<0 이면 루트가 x 반전되므로 각도를 거울상으로.
         const a = this.facing < 0 ? Math.PI - this.aim.angle : this.aim.angle;
-        target = name === this.aim.bones[0] ? a - Math.PI / 2 : 0;
+        target = name === this.aim.bones[0] ? a - Math.PI / 2 - (bone.parent ? absRot.get(bone.parent) ?? 0 : 0) : 0;
       }
       if (this.blend < 1 && !(this.aim && this.aim.bones.includes(name))) {
         const prev = this.prevRot.get(name) ?? target;
         target = prev + (target - prev) * this.blend;
       }
       bone.rotation = target;
+      absRot.set(bone, (bone.parent ? absRot.get(bone.parent) ?? 0 : 0) + target);
       bone.offY = name === 'hip' ? rootY : 0;
     }
     // 월드 행렬

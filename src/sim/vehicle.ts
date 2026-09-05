@@ -5,10 +5,10 @@
  * - 운전자는 좌석에 고정되고, 운전자의 좌/우 입력이 가속이 된다. E 로 타고 내린다.
  * - 빠르게 달리며 적 플레이어와 겹치면 들이받기 피해.
  */
-import { TILE_FP, TILE_SHIFT, px, toTile, clamp, iabs, isign, imin, imax, idiv, batan2, aabbOverlap } from './fixed';
+import { TILE_FP, TILE_SHIFT, px, toTile, clamp, iabs, isign, imin, imax, idiv, batan2, aabbOverlap, bsin, bcos, vlen } from './fixed';
 import { CLASSES, VEHICLES, type VehicleDef } from '../data/defs';
-import { BTN_LEFT, BTN_RIGHT, BTN_USE, type Input } from './input';
-import { PlayerState, type Player, type Vehicle } from './types';
+import { BTN_LEFT, BTN_RIGHT, BTN_USE, BTN_ACTION1, type Input } from './input';
+import { PlayerState, ProjKind, type Player, type Vehicle } from './types';
 import { WATER_MAX } from './tilemap';
 import type { World } from './world';
 
@@ -27,10 +27,16 @@ export function spawnVehicle(world: World, team: number, kind = 0): Vehicle {
   let ty = 0;
   while (ty < world.map.h - 1 && !world.map.isSolid(tx, ty)) ty++;
   const w = px(def.width), h = px(def.height);
+  return spawnVehicleAt(world, kind, team, (tx << TILE_SHIFT) + TILE_FP / 2 - (w >> 1), (ty << TILE_SHIFT) - h - TILE_FP, 0);
+}
+
+/** 지정 위치(좌상단 FP)에 탈것 생성 (건설형 포탑 등) */
+export function spawnVehicleAt(world: World, kind: number, team: number, x: number, y: number, owner: number): Vehicle {
+  const def = VEHICLES[kind];
   const v: Vehicle = {
-    id: world.nextVehicleId++, kind, team,
-    x: (tx << TILE_SHIFT) + TILE_FP / 2 - (w >> 1), y: (ty << TILE_SHIFT) - h - TILE_FP,
-    vx: 0, vy: 0, onGround: false, angle: 0, hp: def.hp, driver: 0, facing: team === 0 ? 1 : -1, ramTimer: 0, odo: 0,
+    id: world.nextVehicleId++, kind, team, x, y,
+    vx: 0, vy: 0, onGround: false, angle: 0, hp: def.hp, driver: 0, gunner: 0, facing: team === 0 ? 1 : -1, ramTimer: 0, odo: 0,
+    owner, aim: team === 0 ? 0 : 2048, target: 0, aimTicks: 0,
   };
   world.vehicles.push(v);
   return v;
@@ -47,8 +53,10 @@ export function nearestMountable(world: World, p: Player): Vehicle | undefined {
   const cx = p.x + (px(c.width) >> 1), cy = p.y + (px(c.height) >> 1);
   let best: Vehicle | undefined, bestD = 0;
   for (const v of world.vehicles) {
-    if (v.driver !== 0 || v.team !== p.team) continue;
+    if (v.team !== p.team) continue;
     const def = vehicleDef(v);
+    if (def.mountable === false) continue;
+    if (v.driver !== 0 && (def.gunnerX === undefined || v.gunner !== 0)) continue; // 빈 자리 없음
     const vx = v.x + (px(def.width) >> 1), vy = v.y + (px(def.height) >> 1);
     const d = iabs(vx - cx) + iabs(vy - cy);
     if (d <= MOUNT_RANGE * 2 && (!best || d < bestD)) { best = v; bestD = d; }
@@ -56,12 +64,20 @@ export function nearestMountable(world: World, p: Player): Vehicle | undefined {
   return best;
 }
 
-/** 좌석 위치(플레이어 AABB 좌상단) */
+/** 좌석 위치(플레이어 AABB 좌상단). 포수면 포수 자리 */
 export function seatPos(v: Vehicle, p: Player): [number, number] {
   const def = vehicleDef(v), c = CLASSES[p.cls];
-  const cx = v.x + (px(def.width) >> 1) + px(def.seatX) * v.facing;
-  const cy = v.y + (px(def.height) >> 1) + px(def.seatY);
+  const gunner = v.gunner === p.id && def.gunnerX !== undefined;
+  const cx = v.x + (px(def.width) >> 1) + px(gunner ? def.gunnerX! : def.seatX) * v.facing;
+  const cy = v.y + (px(def.height) >> 1) + px(gunner ? def.gunnerY! : def.seatY);
   return [cx - (px(c.width) >> 1), cy - (px(c.height) >> 1)];
+}
+
+/** 장갑 차량의 운전석(차체 안)에 탄 플레이어는 총알에 맞지 않는다 */
+export function isShielded(world: World, p: Player): boolean {
+  if (!p.vehicle) return false;
+  const v = findVehicle(world, p.vehicle);
+  return !!v && v.driver === p.id && !!vehicleDef(v).armor;
 }
 
 /** E 입력 처리: 타기/내리기. 처리했으면 true */
@@ -71,11 +87,13 @@ export function handleMount(world: World, p: Player, inp: Input): boolean {
   if (p.vehicle) { dismount(world, p, 0); return true; } // 자리가 없으면 그대로 탄 채
   const v = nearestMountable(world, p);
   if (!v) return false;
-  // 좌석 자리가 막혀 있으면(천장 등) 탈 수 없다
-  const [qx, qy] = seatPos(v, p);
+  // 빈 자리: 운전석 우선, 아니면 포수석. 자리가 막혀 있으면(천장 등) 탈 수 없다
   const c = CLASSES[p.cls];
-  if (world.collidesAt(qx, qy, px(c.width), px(c.height), p.team)) return false;
-  v.driver = p.id; p.vehicle = v.id;
+  const asGunner = v.driver !== 0;
+  if (asGunner) v.gunner = p.id; else v.driver = p.id;
+  p.vehicle = v.id;
+  const [qx, qy] = seatPos(v, p);
+  if (world.collidesAt(qx, qy, px(c.width), px(c.height), p.team)) { if (asGunner) v.gunner = 0; else v.driver = 0; p.vehicle = 0; return false; }
   p.vx = 0; p.vy = 0; p.charge = 0; p.shield = false; p.attackWindup = 0;
   world.dropFlag(p); // 깃발은 들고 탈 수 없다
   const [sx, sy] = seatPos(v, p);
@@ -101,6 +119,7 @@ export function dismount(world: World, p: Player, kickVy: number, force = false)
   if (!pos) { if (!force) return false; pos = [cx, v.y + vh - ph]; }
   p.vehicle = 0;
   if (v.driver === p.id) v.driver = 0;
+  if (v.gunner === p.id) v.gunner = 0;
   p.x = pos[0]; p.y = pos[1];
   p.vx = idiv(v.vx, 2); p.vy = -400 + kickVy; p.onGround = false;
   world.events.push({ kind: 'mount', x: p.x, y: p.y, player: p.id });
@@ -110,13 +129,58 @@ export function dismount(world: World, p: Player, kickVy: number, force = false)
 /** 운전 중인 플레이어의 틱 처리 (물리/액션 대신) */
 export function updateRider(world: World, p: Player, inp: Input): void {
   const v = findVehicle(world, p.vehicle);
-  if (!v || v.driver !== p.id) { p.vehicle = 0; return; }
+  if (!v || (v.driver !== p.id && v.gunner !== p.id)) { p.vehicle = 0; return; }
   p.aimX = inp.cx; p.aimY = inp.cy;
   if (p.hurtTimer > 0) p.hurtTimer--;
   if (p.attackTimer > 0) p.attackTimer--;
-  const left = (inp.buttons & BTN_LEFT) !== 0, right = (inp.buttons & BTN_RIGHT) !== 0;
-  if (left !== right) v.facing = left ? -1 : 1;
-  p.facing = v.facing;
+  const def = vehicleDef(v);
+  if (v.gunner === p.id) {
+    // 포수: 커서 방향으로 기관총 (좌클릭 홀드)
+    p.facing = inp.cx !== 0 ? isign(inp.cx) : v.facing;
+    if (def.mg) {
+      v.aim = batan2(inp.cy, inp.cx || p.facing);
+      if ((inp.buttons & BTN_ACTION1) !== 0 && p.attackTimer === 0) {
+        p.attackTimer = def.mg.rof;
+        const c0 = CLASSES[p.cls];
+        const gx = p.x + (px(c0.width) >> 1), gy = p.y + (px(c0.height) >> 1) - px(2);
+        const ang = (v.aim + world.rng.range(-def.mg.spread, def.mg.spread)) & 4095;
+        const mx = gx + idiv(bcos(v.aim) * px(def.mg.muzzle), 4096), my = gy + idiv(bsin(v.aim) * px(def.mg.muzzle), 4096);
+        if (world.lineClear(v.team, gx, gy, mx, my)) {
+          world.projectiles.push({
+            id: world.nextProjId++, kind: ProjKind.Bullet, owner: p.id, team: p.team,
+            x: mx, y: my, vx: idiv(bcos(ang) * def.mg.speed, 4096), vy: idiv(bsin(ang) * def.mg.speed, 4096),
+            timer: 45, damage: def.mg.damage, stuck: false, attach: 0,
+          });
+          p.animEvent++;
+          world.events.push({ kind: 'shoot', x: mx, y: my, player: p.id, tile: 1 });
+        }
+      }
+    }
+  } else {
+    const left = (inp.buttons & BTN_LEFT) !== 0, right = (inp.buttons & BTN_RIGHT) !== 0;
+    if (left !== right) v.facing = left ? -1 : 1;
+    p.facing = v.facing;
+    if (def.cannon) {
+      // 전차 주포: 운전자가 커서 방향으로 좌클릭. 포탑에서 발사되는 폭발탄
+      const cn = def.cannon;
+      v.aim = batan2(inp.cy, inp.cx || v.facing);
+      if ((inp.buttons & BTN_ACTION1) !== 0 && p.attackTimer === 0) {
+        p.attackTimer = cn.rof;
+        const tx = v.x + (px(def.width) >> 1), ty = v.y + (px(def.height) >> 1) + px(cn.turretY);
+        const mx = tx + idiv(bcos(v.aim) * px(cn.muzzle), 4096), my = ty + idiv(bsin(v.aim) * px(cn.muzzle), 4096);
+        if (world.lineClear(v.team, tx, ty, mx, my)) {
+          world.projectiles.push({
+            id: world.nextProjId++, kind: ProjKind.Shell, owner: p.id, team: p.team,
+            x: mx, y: my, vx: idiv(bcos(v.aim) * cn.speed, 4096), vy: idiv(bsin(v.aim) * cn.speed, 4096),
+            timer: cn.life, damage: cn.damage, stuck: false, attach: 0,
+          });
+          v.vx -= idiv(bcos(v.aim) * 120, 4096); // 반동
+          p.animEvent++;
+          world.events.push({ kind: 'shoot', x: mx, y: my, player: p.id, tile: 3 });
+        }
+      }
+    }
+  }
   const [sx, sy] = seatPos(v, p);
   p.x = sx; p.y = sy; p.vx = v.vx; p.vy = v.vy; p.onGround = true; p.onLadder = false;
   // 물속: 머리가 잠기면 숨이 줄고 익사 피해 (걷는 것과 같은 규칙)
@@ -133,12 +197,17 @@ export function updateVehicles(world: World): void {
     const def = vehicleDef(v);
     const w = px(def.width), h = px(def.height);
     const driver = v.driver ? world.getPlayer(v.driver) : undefined;
-    // 충돌 상자 = 차체 + (운전자가 있으면) 좌석의 운전자 상자 — 운전자가 천장에 끼지 않게
+    const gunner = v.gunner ? world.getPlayer(v.gunner) : undefined;
+    // 충돌 상자 = 차체 + (탑승자가 있으면) 좌석의 탑승자 상자 — 탑승자가 천장에 끼지 않게
     const dc = driver ? CLASSES[driver.cls] : undefined;
+    const gc = gunner ? CLASSES[gunner.cls] : undefined;
     const seatOx = dc ? (w >> 1) + px(def.seatX) * v.facing - (px(dc.width) >> 1) : 0;
     const seatOy = dc ? (h >> 1) + px(def.seatY) - (px(dc.height) >> 1) : 0;
+    const gunOx = gc ? (w >> 1) + px(def.gunnerX ?? 0) * v.facing - (px(gc.width) >> 1) : 0;
+    const gunOy = gc ? (h >> 1) + px(def.gunnerY ?? 0) - (px(gc.height) >> 1) : 0;
     const blocked = (x: number, y: number): boolean =>
-      world.collidesAt(x, y, w, h, v.team) || (!!dc && world.collidesAt(x + seatOx, y + seatOy, px(dc.width), px(dc.height), v.team));
+      world.collidesAt(x, y, w, h, v.team) || (!!dc && world.collidesAt(x + seatOx, y + seatOy, px(dc.width), px(dc.height), v.team))
+      || (!!gc && world.collidesAt(x + gunOx, y + gunOy, px(gc.width), px(gc.height), v.team));
     // 운전자의 이번 틱 입력 (updatePlayer 가 lastInput 을 갱신한 뒤이므로 lastInput = 현재 틱 입력)
     const cur = driver?.lastInput;
     const left = cur ? (cur.buttons & BTN_LEFT) !== 0 : false;
@@ -217,8 +286,12 @@ export function updateVehicles(world: World): void {
       }
     }
 
+    // 자동 포탑
+    if (def.turret) updateTurret(world, v, def);
+
     // 운전자를 이동 후 좌석에 다시 맞춘다 (한 틱 뒤처지지 않게)
     if (driver) { const [sx, sy] = seatPos(v, driver); driver.x = sx; driver.y = sy; driver.vx = v.vx; driver.vy = v.vy; }
+    if (gunner) { const [sx, sy] = seatPos(v, gunner); gunner.x = sx; gunner.y = sy; gunner.vx = v.vx; gunner.vy = v.vy; }
 
     // 맵 밖 / 파괴
     if (v.y > (world.map.h << TILE_SHIFT) || v.hp <= 0) {
@@ -250,11 +323,53 @@ function destroyVehicle(world: World, v: Vehicle): void {
   const def = vehicleDef(v);
   const cx = v.x + (px(def.width) >> 1), cy = v.y + (px(def.height) >> 1);
   world.events.push({ kind: 'explode', x: cx, y: cy });
-  if (v.driver) {
-    const p = world.getPlayer(v.driver);
+  for (const pid of [v.driver, v.gunner]) {
+    if (!pid) continue;
+    const p = world.getPlayer(pid);
     if (p) { dismount(world, p, -600, true); world.hurt(p, 4, 0, 0, -600); }
   }
-  world.vehicleRespawnAt[v.team] = world.tick + def.respawnTicks;
-  // 잔해: 나무 드롭
-  world.spawnDrop(0, 20, cx, cy, world.rng.range(-400, 400), -800);
+  if (def.respawnTicks > 0) world.vehicleRespawnAt[v.team] = world.tick + def.respawnTicks;
+  // 잔해: 고철 드롭 (부수면 자원이 돌아온다)
+  const scrap = def.scrap ?? { wood: 20 };
+  if (scrap.wood) world.spawnDrop(0, scrap.wood, cx, cy, world.rng.range(-400, 400), -800);
+  if (scrap.stone) world.spawnDrop(1, scrap.stone, cx, cy, world.rng.range(-400, 400), -700);
+  if (scrap.iron) world.spawnDrop(2, scrap.iron, cx, cy, world.rng.range(-400, 400), -900);
+}
+
+/** 자동 포탑: 시선이 닿는 가장 가까운 적을 aimTicks 동안 조준한 뒤 rof 마다 발사. 표적을 잃으면 조준 초기화 */
+function updateTurret(world: World, v: Vehicle, def: VehicleDef): void {
+  const t = def.turret!;
+  const w = px(def.width), h = px(def.height);
+  const cx = v.x + (w >> 1), cy = v.y + (h >> 1) - px(1);
+  const range = px(t.range);
+  let best: Player | undefined, bestD = 0;
+  for (const q of world.players) {
+    if (q.state !== PlayerState.Alive || q.team === v.team) continue;
+    const c = CLASSES[q.cls];
+    const qx = q.x + (px(c.width) >> 1), qy = q.y + (px(c.height) >> 1);
+    const d = vlen(qx - cx, qy - cy);
+    if (d > range || (best && d >= bestD)) continue;
+    if (!world.lineClear(v.team, cx, cy, qx, qy)) continue;
+    best = q; bestD = d;
+  }
+  if (!best) { v.target = 0; v.aimTicks = 0; return; }
+  const c = CLASSES[best.cls];
+  const qx = best.x + (px(c.width) >> 1), qy = best.y + (px(c.height) >> 1);
+  // 예측 없음, 대신 표적 방향으로 조준각을 서서히 돌린다
+  const want = batan2(qy - cy, qx - cx);
+  let diff = (want - v.aim) & 4095; if (diff > 2048) diff -= 4096;
+  v.aim = (v.aim + clamp(diff, -120, 120)) & 4095;
+  v.facing = qx >= cx ? 1 : -1;
+  if (v.target !== best.id) { v.target = best.id; v.aimTicks = 0; }
+  if (v.aimTicks < t.aimTicks) { v.aimTicks++; return; }
+  if (v.ramTimer > 0) return;
+  v.ramTimer = t.rof;
+  const ang = (v.aim + world.rng.range(-t.spread, t.spread)) & 4095;
+  const mx = cx + idiv(bcos(v.aim) * px(6), 4096), my = cy + idiv(bsin(v.aim) * px(6), 4096);
+  world.projectiles.push({
+    id: world.nextProjId++, kind: ProjKind.Bullet, owner: v.owner, team: v.team,
+    x: mx, y: my, vx: idiv(bcos(ang) * t.speed, 4096), vy: idiv(bsin(ang) * t.speed, 4096),
+    timer: 40, damage: t.damage, stuck: false, attach: 0,
+  });
+  world.events.push({ kind: 'shoot', x: mx, y: my, player: v.owner, tile: 1 });
 }

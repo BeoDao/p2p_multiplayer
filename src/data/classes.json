@@ -6,26 +6,30 @@
       "hp": 12, "runSpeed": 640, "jumpSpeed": -1900, "width": 7, "height": 14,
       "skin": "rifleman", "weapon": "rifle",
       "hotbar": ["rifle", "grenade"],
-      "gun": { "rof": 4, "speed": 2600, "damage": 1, "gravity": 6, "life": 45, "spreadMin": 12, "spreadMax": 170, "spreadPerShot": 20, "spreadDecay": 5, "crouchDiv": 2, "magazine": 30, "reloadTicks": 50, "ammo": 120, "ammoMax": 240, "tileDamage": 1, "handY": -2, "handReach": 6 },
+      "gun": { "rof": 4, "speed": 2600, "damage": 1, "gravity": 6, "life": 45, "spreadMin": 12, "spreadMax": 170, "spreadPerShot": 20, "spreadDecay": 3, "crouchDiv": 2, "magazine": 30, "reloadTicks": 50, "ammo": 120, "ammoMax": 240, "tileDamage": 1, "handY": -2, "handReach": 6 },
       "shield": true, "shieldPush": 700,
       "bombs": 2, "bombFuse": 90, "bombRadius": 28, "bombDamage": 10, "bombTileDamage": 6,
-      "shop": { "buy": "ammo", "amount": 60, "max": 240, "cost": { "gold": 2 } }
+      "shop": { "buy": "ammo", "amount": 60, "max": 240, "cost": { "iron": 2 } }
     },
     {
-      "id": 1, "name": "archer", "label": "Archer", "labels": {"ja": "弓兵", "ru": "Лучник", "zh": "弓手", "ar": "رامٍ"},
+      "id": 1, "name": "marksman", "label": "Marksman", "labels": {"ja": "狙撃手", "ru": "Снайпер", "zh": "狙击手", "ar": "قناص"},
       "hp": 8, "runSpeed": 700, "jumpSpeed": -1950, "width": 7, "height": 14,
-      "skin": "archer", "weapon": "bow",
-      "hotbar": ["bow"],
-      "bow": { "chargeTicks": 24, "minSpeed": 350, "maxSpeed": 1150, "damageMin": 1, "damageMax": 4, "arrows": 30, "arrowGravity": 10, "handY": -2, "handReach": 5 },
-      "shop": { "buy": "arrows", "amount": 15, "max": 60, "cost": { "gold": 3 } }
+      "skin": "marksman", "weapon": "sniper",
+      "hotbar": ["sniper", "drone", "claymore"],
+      "gun": { "rof": 36, "speed": 4200, "damage": 6, "gravity": 2, "life": 60, "spreadMin": 50, "spreadMax": 220, "spreadPerShot": 90, "spreadDecay": 4, "crouchDiv": 2, "magazine": 5, "reloadTicks": 70, "ammo": 25, "ammoMax": 50, "tileDamage": 2, "handY": -2, "handReach": 7, "auto": false, "scope": { "steadyTicks": 24, "speedDiv": 4 } },
+      "drone": { "count": 2, "speed": 520, "life": 600, "radius": 56, "spotTicks": 90, "hp": 2 },
+      "mine": { "count": 2, "max": 4, "speed": 900, "radius": 20, "damage": 8, "tileDamage": 6, "trigger": 14 },
+      "shop": { "buy": "ammo", "amount": 10, "max": 50, "cost": { "iron": 2 } }
     },
     {
-      "id": 2, "name": "builder", "label": "Builder", "labels": {"ja": "建築家", "ru": "Строитель", "zh": "建造者", "ar": "بنّاء"},
+      "id": 2, "name": "engineer", "label": "Engineer", "labels": {"ja": "工兵", "ru": "Сапёр", "zh": "工兵", "ar": "مهندس"},
       "hp": 8, "runSpeed": 640, "jumpSpeed": -1900, "width": 7, "height": 14,
-      "skin": "builder", "weapon": "pickaxe",
-      "hotbar": ["pickaxe", "wood_block", "stone_block", "ladder", "wood_door", "stone_door", "spikes", "wood_back", "workshop"],
+      "skin": "engineer", "weapon": "pickaxe",
+      "hotbar": ["pickaxe", "c4", "turret", "stone_block", "steel_plate", "ladder", "stone_door", "barbed_wire", "workshop", "tank"],
       "dig": { "damage": 1, "cooldown": 6, "reach": 24 },
-      "build": { "reach": 24, "cooldown": 8 }
+      "build": { "reach": 24, "cooldown": 8 },
+      "c4": { "count": 3, "max": 6, "live": 3, "speed": 1300, "radius": 26, "damage": 12, "tileDamage": 36, "life": 5400 },
+      "shop": { "buy": "c4", "amount": 1, "max": 6, "cost": { "iron": 4 } }
     }
   ]
 }

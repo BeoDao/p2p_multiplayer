@@ -1,14 +1,40 @@
 {
-  "_comment": "탈것 정의. 수치는 px 또는 FP(속도/가속: 1px=256/틱). 차체는 AABB(width×height) 로 충돌하고, 바퀴 위치의 지면 높이 차로 기울기(각도)를 구한다. 1칸(8px) 계단은 자동으로 오른다. seatX/seatY: 운전자 위치(차체 중심 기준 px). respawnTicks: 파괴 후 기지 재생성까지.",
+  "_comment": "탈것 정의. 수치는 px 또는 FP(속도/가속: 1px=256/틱). 차체는 AABB(width×height) 로 충돌하고, 바퀴 위치의 지면 높이 차로 기울기(각도)를 구한다. 1칸(8px) 계단은 자동으로 오른다. seatX/seatY: 운전자 위치(차체 중심 기준 px, 장갑차는 차체 안 = 총알로부터 보호). gunnerX/gunnerY: 포수 자리(있으면 2인승, 노출됨). armor: 총알·화살 면역(폭발만 피해). mg: 포수 기관총. cannon: 운전자가 좌클릭으로 쏘는 주포(폭발탄). maxPerTeam: 건설형 팀당 상한. respawnTicks: 파괴 후 기지 재생성까지(0 = 재생성 없음, 건설형). mountable:false = 탈 수 없음. turret: 자동 사격(적이 range px 안에 시선이 닿으면 rof 틱마다 발사). scrap: 파괴 시 떨어뜨리는 고철 자원.",
   "vehicles": [
     {
-      "id": 0, "name": "cart", "label": "Cart", "labels": { "ja": "荷車", "ru": "Повозка", "zh": "推车", "ar": "عربة" },
-      "width": 24, "height": 8, "wheelBase": 16, "wheelRadius": 4,
-      "seatX": 0, "seatY": -9,
-      "hp": 40, "accel": 45, "maxSpeed": 1000, "friction": 25,
-      "ramDamage": 2, "ramSpeed": 600, "ramKnockback": 900,
-      "respawnTicks": 900,
-      "spawnOffset": -7
+      "id": 0, "name": "apc", "label": "APC", "labels": { "ja": "装甲車", "ru": "БТР", "zh": "装甲车", "ar": "ناقلة مدرعة" },
+      "width": 28, "height": 11, "wheelBase": 18, "wheelRadius": 4,
+      "seatX": -3, "seatY": -2, "gunnerX": 6, "gunnerY": -10,
+      "hp": 120, "accel": 32, "maxSpeed": 900, "friction": 22,
+      "ramDamage": 3, "ramSpeed": 500, "ramKnockback": 1000,
+      "respawnTicks": 1200,
+      "spawnOffset": -7,
+      "body": "apc_body", "scrap": { "iron": 10, "stone": 10 },
+      "armor": true,
+      "mg": { "rof": 5, "speed": 2600, "damage": 1, "spread": 60, "muzzle": 9 }
+    },
+    {
+      "id": 1, "name": "turret", "label": "Auto turret", "labels": { "ja": "自動砲塔", "ru": "Автотурель", "zh": "自动炮塔", "ar": "برج آلي" },
+      "width": 8, "height": 8, "wheelBase": 6, "wheelRadius": 1,
+      "seatX": 0, "seatY": 0, "mountable": false,
+      "hp": 30, "accel": 0, "maxSpeed": 0, "friction": 100,
+      "ramDamage": 0, "ramSpeed": 99999, "ramKnockback": 0,
+      "respawnTicks": 0,
+      "spawnOffset": 0,
+      "body": "turret_base", "scrap": { "iron": 4 },
+      "turret": { "rof": 9, "range": 96, "damage": 1, "speed": 2400, "spread": 40, "aimTicks": 12, "maxPerTeam": 3 }
+    },
+    {
+      "id": 2, "name": "tank", "label": "Tank", "labels": { "ja": "戦車", "ru": "Танк", "zh": "坦克", "ar": "دبابة" },
+      "width": 30, "height": 13, "wheelBase": 20, "wheelRadius": 4,
+      "seatX": -2, "seatY": -1,
+      "hp": 200, "accel": 20, "maxSpeed": 620, "friction": 30,
+      "ramDamage": 4, "ramSpeed": 400, "ramKnockback": 1100,
+      "respawnTicks": 0,
+      "spawnOffset": 0,
+      "body": "tank_body", "scrap": { "iron": 20, "stone": 10 },
+      "armor": true, "maxPerTeam": 1,
+      "cannon": { "rof": 60, "speed": 2000, "damage": 10, "radius": 28, "tileDamage": 24, "gravity": 8, "life": 90, "muzzle": 14, "turretY": -6 }
     }
   ]
 }

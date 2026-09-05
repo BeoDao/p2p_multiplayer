@@ -12,6 +12,7 @@ import { WATER_MAX } from '../sim/tilemap';
 import { PlayerState, ProjKind, type Player, type Vehicle, type WorldEvent } from '../sim/types';
 import { VEHICLES, CLASSES, TILE_TABLE, hotbarItem, T_AIR } from '../data/defs';
 import { FP_ONE, TILE_PX } from '../sim/fixed';
+import { BTN_DOWN } from '../sim/input';
 import { Skeleton, TEAM_COLORS } from './skeleton';
 import { TextureRegistry } from './textures';
 
@@ -19,7 +20,7 @@ const CHUNK = 32;
 const ZOOM_DEFAULT = 3;
 
 interface VehicleView {
-  root: Container; body: Sprite; wheels: Sprite[]; hp: Graphics;
+  root: Container; body: Sprite; wheels: Sprite[]; hp: Graphics; barrel?: Sprite;
   prevX: number; prevY: number; curX: number; curY: number; prevAng: number; curAng: number;
 }
 
@@ -38,7 +39,7 @@ interface Particle { x: number; y: number; vx: number; vy: number; life: number;
 const SHOULDER_ABOVE_CENTER = 4.5;
 
 /** 드롭 종류(DropKind 순서) → 파츠/색/아이콘 */
-const DROP_PARTS = ['drop_wood', 'drop_stone', 'drop_gold', 'drop_bomb', 'drop_arrow'];
+const DROP_PARTS = ['drop_wood', 'drop_stone', 'drop_iron', 'drop_bomb', 'drop_arrow'];
 const DROP_COLORS = [0xa8763e, 0xaaaaaa, 0xffd040, 0x606060, 0xe8e8e8];
 const DROP_ICONS = ['🪵', '🪨', '🪙', '💣', '🏹'];
 
@@ -213,22 +214,39 @@ export class Renderer {
     const def = VEHICLES[veh.kind];
     const root = new Container();
     root.zIndex = 8;
-    const body = new Sprite(this.tex.part('cart_body'));
+    const body = new Sprite(this.tex.part(def.body ?? 'cart_body'));
     body.anchor.set(0.5, 0.5);
-    body.tint = veh.team === 0 ? 0xb9c8ff : 0xffb9b9;
+    body.tint = def.turret ? (veh.team === 0 ? 0xd8e4ff : 0xffd8d8) : veh.team === 0 ? 0xb9c8ff : 0xffb9b9;
+    let barrel: Sprite | undefined;
+    if (def.turret) {
+      barrel = new Sprite(this.tex.part('turret_barrel'));
+      barrel.anchor.set(0.15, 0.5);
+      barrel.position.set(0, -1);
+      root.addChild(barrel);
+    } else if (def.mg) {
+      barrel = new Sprite(this.tex.part('mg_barrel'));
+      barrel.anchor.set(0.1, 0.5);
+      barrel.zIndex = 12;
+      root.addChild(barrel);
+    } else if (def.cannon) {
+      barrel = new Sprite(this.tex.part('tank_barrel'));
+      barrel.anchor.set(0.1, 0.5);
+      barrel.position.set(0, def.cannon.turretY);
+      root.addChild(barrel);
+    }
     const wheels: Sprite[] = [];
-    for (const sx of [-1, 1]) {
+    if (!def.turret) for (const sx of [-1, 1]) {
       const wsp = new Sprite(this.tex.part('wheel'));
       wsp.anchor.set(0.5, 0.5);
       wsp.position.set(sx * def.wheelBase / 2, def.height / 2 - 1);
       wheels.push(wsp);
       root.addChild(wsp);
     }
-    root.addChild(body);
+    if (barrel) root.addChildAt(body, 0); else root.addChild(body);
     const hp = new Graphics();
     root.addChild(hp);
     this.entityLayer.addChild(root);
-    v = { root, body, wheels, hp, prevX: veh.x, prevY: veh.y, curX: veh.x, curY: veh.y, prevAng: veh.angle, curAng: veh.angle };
+    v = { root, body, wheels, hp, barrel, prevX: veh.x, prevY: veh.y, curX: veh.x, curY: veh.y, prevAng: veh.angle, curAng: veh.angle };
     this.vehicleViews.set(veh.id, v);
     return v;
   }
@@ -251,7 +269,7 @@ export class Renderer {
     return v;
   }
 
-  private updatePlayer(world: World, p: Player, v: PlayerView, alpha: number, dtTicks: number, isLocal: boolean): void {
+  private updatePlayer(world: World, p: Player, v: PlayerView, alpha: number, dtTicks: number, isLocal: boolean, localTeam: number): void {
     const cls = CLASSES[p.cls];
     if (v.cls !== p.cls || v.team !== p.team) {
       v.skel.setSkin(cls.skin, {}, p.team);
@@ -263,7 +281,8 @@ export class Renderer {
     const y = (v.prevY + (v.curY - v.prevY) * alpha) / FP_ONE;
     const skel = v.skel;
     skel.root.position.set(x + w / 2, y + h); // root = 발
-    skel.root.visible = p.state === PlayerState.Alive;
+    const inHull = !!p.vehicle && world.vehicles.some((veh) => veh.id === p.vehicle && veh.driver === p.id && !!VEHICLES[veh.kind].armor);
+    skel.root.visible = p.state === PlayerState.Alive && !inHull; // 장갑차 운전석: 차체 안이라 보이지 않음
     v.name.visible = p.state === PlayerState.Alive;
     v.hp.visible = p.state === PlayerState.Alive && p.hp < cls.hp;
     if (p.state !== PlayerState.Alive) { skel.play('dead'); return; }
@@ -278,6 +297,19 @@ export class Renderer {
       v.hp.rect(x + w / 2 - 5, y - 4, 10, 1.5).fill(0x000000);
       v.hp.rect(x + w / 2 - 5, y - 4, (10 * p.hp) / cls.hp, 1.5).fill(p.team === 0 ? 0x66aaff : 0xff6666);
     }
+    // 조준선(저격 조준 중): 손에서 커서 방향으로 얇은 붉은 선. 발각 표시: 적 드론에 잡힌 플레이어 위 붉은 삼각형
+    if (p.scope > 0 && cls.gun?.scope) {
+      const steady = p.scope / cls.gun.scope.steadyTicks;
+      const len = Math.hypot(p.aimX, p.aimY) || 1;
+      const dx = (p.aimX || p.facing) / len, dy = p.aimY / len;
+      const hx = x + w / 2 + dx * 6, hy = y + h / 2 - 2 + dy * 6;
+      v.hp.moveTo(hx, hy).lineTo(hx + dx * 90, hy + dy * 90).stroke({ color: 0xff3030, width: 0.5, alpha: 0.15 + 0.35 * steady });
+      v.hp.visible = true;
+    }
+    if (p.spotTimer > 0 && p.team !== localTeam) {
+      v.hp.moveTo(x + w / 2 - 3, y - 18).lineTo(x + w / 2 + 3, y - 18).lineTo(x + w / 2, y - 14).closePath().fill({ color: 0xff3030, alpha: 0.6 + 0.4 * ((world.tick >> 3) & 1) });
+      v.hp.visible = true;
+    }
     if (charging) {
       const f = p.charge / chargeMax;
       const full = p.charge >= chargeMax;
@@ -286,15 +318,17 @@ export class Renderer {
     }
     // 무기 파츠
     const item = hotbarItem(cls, p.slot);
-    const key = item ? (item.kind === 'weapon' ? item.part ?? 'none' : 'tile:' + item.tile) : 'none';
+    const key = p.shield && cls.shieldPush ? 'shield' : item ? (item.kind === 'weapon' ? item.part ?? 'none' : 'tile:' + item.tile) : 'none';
     if (key !== v.weaponKey) {
       v.weaponKey = key;
-      if (key.startsWith('tile:')) {
+      if (key === 'shield') { skel.setPartTexture('weapon', 'breach_shield'); skel.setPartOffset('weapon', 90, 2, 0); }
+      else if (key.startsWith('tile:')) {
         const t = this.tex.tile(key.slice(5), 0);
         if (t) skel.setPartTextureObj('weapon', t); else skel.setPartTexture('weapon', 'none');
       } else skel.setPartTexture('weapon', key);
-      skel.setPartOffset('weapon', item?.rot ?? 0, item?.ox ?? 0, item?.oy ?? 0);
+      if (key !== 'shield') skel.setPartOffset('weapon', item?.rot ?? 0, item?.ox ?? 0, item?.oy ?? 0);
     }
+    const crouching = !!cls.gun && p.onGround && !p.onLadder && !p.vehicle && (p.lastInput.buttons & BTN_DOWN) !== 0;
     // 애니메이션 선택
     skel.facing = p.facing;
     const moving = Math.abs(p.vx) > 40;
@@ -303,19 +337,21 @@ export class Renderer {
     else if (p.onLadder && !p.onGround) clip = 'climb';
     else if (!p.onGround) clip = p.vy < 0 ? 'jump' : 'fall';
     else if (p.shield) clip = 'shield';
+    else if (crouching) clip = 'crouch';
     else if (moving) clip = 'run';
     skel.play(clip);
     if (p.animEvent !== v.lastAnimEvent) {
       v.lastAnimEvent = p.animEvent;
       if (item?.id === 'sword') skel.playOverlay('slash');
-      else if (item?.id === 'bomb' || item?.id === 'grenade') skel.playOverlay('throw');
+      else if (item?.id === 'bomb' || item?.id === 'grenade' || item?.id === 'c4' || item?.id === 'claymore' || item?.id === 'drone') skel.playOverlay('throw');
       else if (item?.id === 'pickaxe' || item?.kind === 'block') skel.playOverlay('dig');
     }
     // 조준 (활 / 폭탄): 앞팔이 커서를 향함
     const throwing = (item?.id === 'bomb' || item?.id === 'grenade') && (p.attackTimer > 0 || p.charge > 0);
-    if (item?.id === 'bow' || item?.id === 'rifle' || throwing) {
+    if (key === 'shield') skel.setAim(['armF', 'forearmF'], p.facing > 0 ? 0.7 : Math.PI - 0.7);
+    else if (item?.id === 'bow' || item?.id === 'rifle' || item?.id === 'sniper' || throwing) {
       let ang = Math.atan2(p.aimY, p.aimX);
-      const handDef = item.id === 'bow' ? cls.bow : item.id === 'rifle' ? cls.gun : undefined;
+      const handDef = item.id === 'bow' ? cls.bow : item.id === 'rifle' || item.id === 'sniper' ? cls.gun : undefined;
       if (handDef) {
         // 팔은 시뮬의 발사 원점(활 손)을 향한다: 어깨 → (몸 중앙 + handY + 조준 방향*handReach). 활이 가슴 높이로 내려온다.
         const len = Math.hypot(p.aimX, p.aimY) || 1;
@@ -360,9 +396,9 @@ export class Renderer {
         case 'hit': this.spawnParticles(x + 3, y + 7, e.team === -1 ? 4 : 8, e.team === -1 ? 0xffffff : 0xd02020, 1.5, 12); if (e.team !== -1 && e.tile) this.floatText(x + 3, y - 2, `-${e.tile}`, 0xff5050); break;
         case 'die': this.spawnParticles(x + 3, y + 7, 20, 0xb01010, 2.5, 30); this.addShake(x, y, 2); break;
         case 'explode': this.spawnParticles(x, y, 40, 0xffa020, 4, 25); this.spawnParticles(x, y, 20, 0x404040, 2, 40); this.addShake(x, y, 6); break;
-        case 'dig': { const def = e.tile !== undefined ? TILE_TABLE[e.tile] : undefined; this.spawnParticles(x, y, 5, def?.name === 'stone' || def?.name === 'gold_ore' ? 0x909090 : 0x7a5230, 1.2, 15); break; }
+        case 'dig': { const def = e.tile !== undefined ? TILE_TABLE[e.tile] : undefined; this.spawnParticles(x, y, 5, def?.name === 'stone' || def?.name === 'iron_ore' ? 0x909090 : 0x7a5230, 1.2, 15); break; }
         case 'build': this.spawnParticles(x, y, 4, 0xffffff, 0.8, 10); break;
-        case 'shoot': if (e.tile === 1) this.spawnParticles(x, y, 3, 0xffe080, 1.5, 4); break;
+        case 'shoot': if (e.tile === 1) this.spawnParticles(x, y, 3, 0xffe080, 1.5, 4); else if (e.tile === 3) { this.spawnParticles(x, y, 10, 0xffc060, 2.5, 8); this.spawnParticles(x, y, 6, 0x666666, 1.5, 20); this.addShake(x, y, 3); } break;
         case 'mount': this.spawnParticles(x + 3, y + 7, 6, 0xffffff, 1, 10); break;
         case 'vhit': this.spawnParticles(x, y, 6, 0xc0a060, 1.5, 12); if (e.tile) this.floatText(x, y - 6, `-${e.tile}`, 0xffc040); break;
         case 'loot': this.spawnParticles(x, y, 6, DROP_COLORS[e.tile ?? 0] ?? 0xa8763e, 1, 12); if (e.by) this.floatText(x, y - 3, `+${e.by}${DROP_ICONS[e.tile ?? 0] ?? ''}`, DROP_COLORS[e.tile ?? 0] ?? 0xffffff); break;
@@ -423,7 +459,8 @@ export class Renderer {
     }
     // 사라진 플레이어 뷰 정리
     for (const [pid, v] of this.players) if (!world.getPlayer(pid)) { v.skel.root.destroy(); v.name.destroy(); v.hp.destroy(); this.players.delete(pid); }
-    for (const p of world.players) this.updatePlayer(world, p, this.getPlayerView(p), alpha, dtTicks, p.id === localPid);
+    const localTeam = world.getPlayer(localPid)?.team ?? -1;
+    for (const p of world.players) this.updatePlayer(world, p, this.getPlayerView(p), alpha, dtTicks, p.id === localPid, localTeam);
 
     // 탈것
     const seenVeh = new Set<number>();
@@ -437,7 +474,15 @@ export class Renderer {
       const ang = (v.prevAng + da * alpha) * (Math.PI * 2 / 4096);
       v.root.position.set(x, y);
       v.root.rotation = ang;
-      v.body.scale.x = veh.facing;
+      v.body.scale.x = def.turret ? 1 : veh.facing;
+      if (v.barrel && def.turret) { v.barrel.rotation = veh.aim * (Math.PI * 2 / 4096) - ang; v.barrel.tint = veh.target ? 0xffb0b0 : 0xffffff; }
+      else if (v.barrel && def.cannon) { v.barrel.rotation = veh.aim * (Math.PI * 2 / 4096) - ang; }
+      else if (v.barrel && def.mg) {
+        // 포수 기관총: 포수가 있을 때만, 포수 자리에서 조준각으로
+        v.barrel.visible = veh.gunner !== 0;
+        v.barrel.position.set((def.gunnerX ?? 0) * veh.facing, (def.gunnerY ?? 0) - 2);
+        v.barrel.rotation = veh.aim * (Math.PI * 2 / 4096) - ang;
+      }
       const spin = veh.odo / FP_ONE / def.wheelRadius;
       for (const wsp of v.wheels) wsp.rotation = spin;
       v.hp.clear();
@@ -451,15 +496,19 @@ export class Renderer {
       seen.add(pr.id);
       let sp = this.projSprites.get(pr.id);
       if (!sp) {
-        sp = new Sprite(this.tex.part(pr.kind === ProjKind.Arrow ? 'arrow' : pr.kind === ProjKind.Bullet ? 'bullet' : 'bomb'));
+        sp = new Sprite(this.tex.part(pr.kind === ProjKind.Arrow ? 'arrow' : pr.kind === ProjKind.Bullet ? 'bullet' : pr.kind === ProjKind.C4 ? 'c4' : pr.kind === ProjKind.Drone ? 'drone' : pr.kind === ProjKind.Claymore ? 'claymore' : pr.kind === ProjKind.Shell ? 'shell' : 'bomb'));
         sp.anchor.set(pr.kind === ProjKind.Arrow ? 0.8 : pr.kind === ProjKind.Bullet ? 1 : 0.5, 0.5);
         this.entityLayer.addChild(sp);
         this.projSprites.set(pr.id, sp);
       }
       sp.position.set(pr.x / FP_ONE, pr.y / FP_ONE);
-      if (pr.kind === ProjKind.Arrow || pr.kind === ProjKind.Bullet) { if (!pr.stuck) sp.rotation = Math.atan2(pr.vy, pr.vx); }
+      if (pr.kind === ProjKind.Arrow || pr.kind === ProjKind.Bullet || pr.kind === ProjKind.Shell) { if (!pr.stuck) sp.rotation = Math.atan2(pr.vy, pr.vx); }
+      else if (pr.kind === ProjKind.C4 || pr.kind === ProjKind.Claymore) { if (!pr.stuck) sp.rotation += 0.15 * dtTicks; }
+      else if (pr.kind === ProjKind.Drone) { sp.rotation = Math.max(-0.3, Math.min(0.3, pr.vx / 2000)); sp.position.y += Math.sin(world.tick * 0.4) * 0.5; }
       else sp.rotation += 0.2 * dtTicks * Math.sign(pr.vx || 1);
-      if (pr.kind === ProjKind.Bomb && pr.timer < 30 && (pr.timer & 4)) sp.tint = 0xff4040; else sp.tint = 0xffffff;
+      if (pr.kind === ProjKind.Bomb && pr.timer < 30 && (pr.timer & 4)) sp.tint = 0xff4040;
+      else if ((pr.kind === ProjKind.C4 || pr.kind === ProjKind.Claymore) && pr.stuck && (world.tick & 16)) sp.tint = 0xffa0a0; // 설치된 폭약: 깜빡임
+      else sp.tint = 0xffffff;
     }
     for (const [id, sp] of this.projSprites) if (!seen.has(id)) { sp.destroy(); this.projSprites.delete(id); }
 
