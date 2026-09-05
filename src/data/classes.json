@@ -1,0 +1,31 @@
+{
+  "_comment": "직업 정의. 수치는 전부 정수. 속도/가속은 FP(1px=256). hp 는 1/4 하트 단위(4 = 1하트). skin 은 skins 디렉터리의 스킨 id, weapon 은 items.json 의 아이템 id.",
+  "classes": [
+    {
+      "id": 0, "name": "knight", "label": "Knight", "labels": {"ja": "騎士", "ru": "Рыцарь", "zh": "骑士", "ar": "فارس"},
+      "hp": 12, "runSpeed": 640, "jumpSpeed": -1900, "width": 7, "height": 14,
+      "skin": "knight", "weapon": "sword",
+      "hotbar": ["sword", "bomb"],
+      "attack": { "damage": 4, "cooldown": 12, "windup": 5, "range": 16, "knockback": 900 },
+      "shield": true,
+      "bombs": 2, "bombFuse": 90, "bombRadius": 28, "bombDamage": 10, "bombTileDamage": 6,
+      "shop": { "buy": "bombs", "amount": 1, "max": 4, "cost": { "gold": 4 } }
+    },
+    {
+      "id": 1, "name": "archer", "label": "Archer", "labels": {"ja": "弓兵", "ru": "Лучник", "zh": "弓手", "ar": "رامٍ"},
+      "hp": 8, "runSpeed": 700, "jumpSpeed": -1950, "width": 7, "height": 14,
+      "skin": "archer", "weapon": "bow",
+      "hotbar": ["bow"],
+      "bow": { "chargeTicks": 24, "minSpeed": 350, "maxSpeed": 1150, "damageMin": 1, "damageMax": 4, "arrows": 30, "arrowGravity": 10, "handY": -2, "handReach": 5 },
+      "shop": { "buy": "arrows", "amount": 15, "max": 60, "cost": { "gold": 3 } }
+    },
+    {
+      "id": 2, "name": "builder", "label": "Builder", "labels": {"ja": "建築家", "ru": "Строитель", "zh": "建造者", "ar": "بنّاء"},
+      "hp": 8, "runSpeed": 640, "jumpSpeed": -1900, "width": 7, "height": 14,
+      "skin": "builder", "weapon": "pickaxe",
+      "hotbar": ["pickaxe", "wood_block", "stone_block", "ladder", "wood_door", "stone_door", "spikes", "wood_back", "workshop"],
+      "dig": { "damage": 1, "cooldown": 6, "reach": 24 },
+      "build": { "reach": 24, "cooldown": 8 }
+    }
+  ]
+}

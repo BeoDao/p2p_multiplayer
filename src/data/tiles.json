@@ -1,0 +1,23 @@
+{
+  "_comment": "타일 정의. id 는 0..255 고정. hp 0 = 파괴 불가. solid: 충돌. layer: front(기본)|back(뒷벽). natural: 자연 지형 — 파괴되면 뒷벽(dirt_back)을 남김. tree: 나무 파츠 — 일반 타일과 연결/지지 판정을 공유하지 않고 나무끼리만 연결되며 밑동 아래 고체에 의존. yields: 파괴 시 자원. drop: true 면 자원을 즉시 주지 않고 바닥에 아이템(통나무 등)으로 떨어뜨림 — 걸어가서 줍는다. texture 는 텍스처 키.",
+  "tiles": [
+    { "id": 0,  "name": "air",        "solid": false, "hp": 0,  "texture": null },
+    { "id": 1,  "name": "dirt",       "solid": true,  "hp": 4,  "texture": "dirt",       "yields": {}, "natural": true },
+    { "id": 2,  "name": "grass",      "solid": true,  "hp": 4,  "texture": "grass",      "yields": {}, "natural": true },
+    { "id": 3,  "name": "stone",      "solid": true,  "hp": 8,  "texture": "stone",      "yields": { "stone": 4 }, "natural": true },
+    { "id": 4,  "name": "gold_ore",   "solid": true,  "hp": 12, "texture": "gold_ore",   "yields": { "gold": 4 }, "natural": true },
+    { "id": 5,  "name": "bedrock",    "solid": true,  "hp": 0,  "texture": "bedrock" },
+    { "id": 6,  "name": "tree_trunk", "solid": false, "hp": 6,  "texture": "tree_trunk", "yields": { "wood": 8 }, "tree": true, "drop": true },
+    { "id": 7,  "name": "tree_leaf",  "solid": false, "hp": 2,  "texture": "tree_leaf",  "yields": {}, "tree": true },
+    { "id": 8,  "name": "wood_block", "solid": true,  "hp": 6,  "texture": "wood_block", "yields": { "wood": 2 }, "buildable": true },
+    { "id": 9,  "name": "stone_block","solid": true,  "hp": 16, "texture": "stone_block","yields": { "stone": 4 }, "buildable": true },
+    { "id": 10, "name": "ladder",     "solid": false, "hp": 3,  "texture": "ladder",     "yields": { "wood": 1 }, "buildable": true, "ladder": true },
+    { "id": 11, "name": "wood_door",  "solid": true,  "hp": 10, "texture": "wood_door",  "yields": { "wood": 4 }, "buildable": true, "door": true },
+    { "id": 12, "name": "stone_door", "solid": true,  "hp": 24, "texture": "stone_door", "yields": { "stone": 8 }, "buildable": true, "door": true },
+    { "id": 13, "name": "spikes",     "solid": false, "hp": 6,  "texture": "spikes",     "yields": { "stone": 4 }, "buildable": true, "damage": 4 },
+    { "id": 14, "name": "wood_back",  "solid": false, "hp": 4,  "texture": "wood_back",  "yields": { "wood": 1 }, "buildable": true, "layer": "back" },
+    { "id": 15, "name": "stone_back", "solid": false, "hp": 8,  "texture": "stone_back", "yields": { "stone": 2 }, "buildable": true, "layer": "back" },
+    { "id": 16, "name": "dirt_back",  "solid": false, "hp": 3,  "texture": "dirt_back",  "yields": {}, "layer": "back" },
+    { "id": 17, "name": "workshop",   "solid": false, "hp": 20, "texture": "workshop",   "yields": { "wood": 10 }, "buildable": true, "shop": true }
+  ]
+}

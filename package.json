@@ -1,0 +1,26 @@
+{
+  "name": "kag2web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trystero-p2p/core": "^0.25.4",
+    "@trystero-p2p/nostr": "^0.25.4",
+    "@trystero-p2p/torrent": "^0.25.4",
+    "pixi.js": "^8.20.1",
+    "trystero": "^0.25.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  }
+}

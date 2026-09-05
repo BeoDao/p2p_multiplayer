@@ -1,0 +1,5 @@
+node_modules
+dist
+push_to_github.cmd
+push_log.txt
+Claude outputs/

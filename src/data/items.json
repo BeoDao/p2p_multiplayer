@@ -1,0 +1,18 @@
+{
+  "_comment": "핫바 아이템 정의. rot/ox/oy: 손 파츠의 회전(도)/오프셋(px). kind: weapon(스킬 사용) | block(타일 설치). block 은 tile 이름과 cost. part 는 스킨의 손 파츠 id (무기 그래픽 교체 지점).",
+  "items": [
+    { "id": "sword", "label": "Sword", "labels": {"ja": "剣", "ru": "Меч", "zh": "剑", "ar": "سيف"},        "kind": "weapon", "part": "weapon_sword",   "icon": "icon_sword" },
+    { "id": "bomb", "label": "Bomb", "labels": {"ja": "爆弾", "ru": "Бомба", "zh": "炸弹", "ar": "قنبلة"},      "kind": "weapon", "part": "weapon_bomb",    "icon": "icon_bomb" },
+    { "id": "bow", "label": "Bow", "labels": {"ja": "弓", "ru": "Лук", "zh": "弓", "ar": "قوس"},        "kind": "weapon", "part": "weapon_bow",     "icon": "icon_bow", "rot": 90, "ox": 2 },
+    { "id": "pickaxe", "label": "Pickaxe", "labels": {"ja": "つるはし", "ru": "Кирка", "zh": "镐", "ar": "معول"},    "kind": "weapon", "part": "weapon_pickaxe", "icon": "icon_pickaxe" },
+    { "id": "wood_block", "label": "Wood block", "labels": {"ja": "木ブロック", "ru": "Деревянный блок", "zh": "木块", "ar": "كتلة خشب"}, "kind": "block",  "tile": "wood_block",  "cost": { "wood": 10 },  "icon": "wood_block" },
+    { "id": "stone_block", "label": "Stone block", "labels": {"ja": "石ブロック", "ru": "Каменный блок", "zh": "石块", "ar": "كتلة حجر"},   "kind": "block",  "tile": "stone_block", "cost": { "stone": 30 }, "icon": "stone_block" },
+    { "id": "ladder", "label": "Ladder", "labels": {"ja": "はしご", "ru": "Лестница", "zh": "梯子", "ar": "سلّم"},    "kind": "block",  "tile": "ladder",      "cost": { "wood": 10 },  "icon": "ladder" },
+    { "id": "wood_door", "label": "Wood door", "labels": {"ja": "木の扉", "ru": "Деревянная дверь", "zh": "木门", "ar": "باب خشبي"},   "kind": "block",  "tile": "wood_door",   "cost": { "wood": 30 },  "icon": "wood_door" },
+    { "id": "stone_door", "label": "Stone door", "labels": {"ja": "石の扉", "ru": "Каменная дверь", "zh": "石门", "ar": "باب حجري"},     "kind": "block",  "tile": "stone_door",  "cost": { "stone": 50 }, "icon": "stone_door" },
+    { "id": "spikes", "label": "Spikes", "labels": {"ja": "トゲ", "ru": "Шипы", "zh": "尖刺", "ar": "أشواك"},      "kind": "block",  "tile": "spikes",      "cost": { "stone": 30 }, "icon": "spikes" },
+    { "id": "wood_back", "label": "Wood wall", "labels": {"ja": "木の背景壁", "ru": "Деревянная стена", "zh": "木背景墙", "ar": "جدار خشبي"}, "kind": "block",  "tile": "wood_back",   "cost": { "wood": 5 },   "icon": "wood_back" },
+    { "id": "workshop", "label": "Workshop", "labels": {"ja": "作業場", "ru": "Мастерская", "zh": "工坊", "ar": "ورشة"},    "kind": "block",  "tile": "workshop",    "cost": { "wood": 50, "stone": 20 }, "icon": "workshop" },
+    { "id": "stone_back", "label": "Stone wall", "labels": {"ja": "石の背景壁", "ru": "Каменная стена", "zh": "石背景墙", "ar": "جدار حجري"},   "kind": "block",  "tile": "stone_back",  "cost": { "stone": 10 }, "icon": "stone_back" }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "_comment": "스킨 = 본 → 파츠 텍스처 매핑. texture 는 텍스처 레지스트리 키(프로시저럴 기본 파츠 또는 public/assets/parts/<key>.png 로 교체). '$weapon' 은 장착 아이템의 part 로 치환. ax/ay 앵커(0~1), ox/oy 는 본 기준 오프셋(px), z 정렬, teamTint: 팀색 적용 여부. extends 로 다른 스킨을 상속.",
+  "skins": {
+    "base": {
+      "parts": [
+        { "id": "shinB",    "bone": "shinB",    "texture": "shin",       "ax": 0.5, "ay": 0.05, "z": 0 },
+        { "id": "legB",     "bone": "legB",     "texture": "thigh",      "ax": 0.5, "ay": 0.05, "z": 1, "teamTint": true },
+        { "id": "forearmB", "bone": "forearmB", "texture": "forearm",    "ax": 0.5, "ay": 0.05, "z": 2 },
+        { "id": "armB",     "bone": "armB",     "texture": "arm",        "ax": 0.5, "ay": 0.05, "z": 3, "teamTint": true },
+        { "id": "back",     "bone": "back",     "texture": "$back",      "ax": 0.5, "ay": 0.5,  "z": 4 },
+        { "id": "torso",    "bone": "torso",    "texture": "torso",      "ax": 0.5, "ay": 1.0,  "z": 5, "teamTint": true },
+        { "id": "shinF",    "bone": "shinF",    "texture": "shin",       "ax": 0.5, "ay": 0.05, "z": 6 },
+        { "id": "legF",     "bone": "legF",     "texture": "thigh",      "ax": 0.5, "ay": 0.05, "z": 7, "teamTint": true },
+        { "id": "head",     "bone": "head",     "texture": "$head",      "ax": 0.5, "ay": 0.9,  "z": 8 },
+        { "id": "armF",     "bone": "armF",     "texture": "arm",        "ax": 0.5, "ay": 0.05, "z": 9, "teamTint": true },
+        { "id": "forearmF", "bone": "forearmF", "texture": "forearm",    "ax": 0.5, "ay": 0.05, "z": 10 },
+        { "id": "weapon",   "bone": "hand",     "texture": "$weapon",    "ax": 0.25, "ay": 0.5, "z": 11 }
+      ]
+    },
+    "knight":  { "extends": "base", "vars": { "$head": "head_knight",  "$back": "shield_back" } },
+    "archer":  { "extends": "base", "vars": { "$head": "head_archer",  "$back": "quiver" } },
+    "builder": { "extends": "base", "vars": { "$head": "head_builder", "$back": "none" } }
+  }
+}

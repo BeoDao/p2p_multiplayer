@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KAG2 Web</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #111; overflow: hidden; font-family: system-ui, sans-serif; color: #eee; }
+    #game { position: fixed; inset: 0; }
+    #game canvas { display: block; image-rendering: pixelated; }
+    .menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(#1b2a44, #0d1220); z-index: 10; }
+    .menu .panel { background: rgba(0,0,0,.55); padding: 28px 32px; border-radius: 12px; min-width: 340px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+    .menu h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: 1px; }
+    .menu p.sub { margin: 0 0 18px; color: #9ab; font-size: 13px; }
+    .menu label { display: block; font-size: 13px; color: #bcd; margin: 10px 0 4px; }
+    .menu input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #456; background: #0b1020; color: #fff; font-size: 15px; }
+    .menu .row { display: flex; gap: 8px; margin-top: 16px; }
+    .menu button { flex: 1; padding: 10px; border: 0; border-radius: 6px; font-size: 15px; cursor: pointer; background: #3b6cf0; color: #fff; }
+    .menu button.secondary { background: #3a4a60; }
+    .menu .help { margin-top: 16px; font-size: 12px; color: #9ab; line-height: 1.5; }
+    .menu kbd, .hud kbd { background: #223; padding: 1px 5px; border-radius: 4px; border: 1px solid #446; font-size: 11px; }
+    .langs { display: flex; flex-wrap: wrap; gap: 4px; }
+    .menu .langs { float: right; max-width: 60%; justify-content: flex-end; }
+    .langs button { flex: none; padding: 3px 8px; font-size: 12px; background: #2a3a50; margin: 0; }
+    .langs button.on { background: #3b6cf0; }
+    .menu .sub, .menu .help, .menu label, .hud-settings, .hud-center, .hud-log, .hud-chat { direction: var(--dir, ltr); }
+    .hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-size: 14px; text-shadow: 0 1px 2px #000; }
+    .hud-top { position: absolute; left: 12px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
+    .hud .score { font-size: 22px; font-weight: bold; }
+    .hud .blue { color: #7aa2ff; } .hud .red { color: #ff7a7a; }
+    .hud .heart { color: #ff3b3b; font-size: 20px; margin-right: 1px; }
+    .hud .res span { margin-right: 12px; }
+    .hud .kd { font-size: 12px; color: #ccd; }
+    .hud-center { position: absolute; left: 0; right: 0; top: 30%; text-align: center; }
+    .hud-center .big { font-size: 40px; font-weight: bold; }
+    .hud-center .hint { background: rgba(0,0,0,.5); display: inline-block; padding: 6px 12px; border-radius: 8px; }
+    .hud-log { position: absolute; right: 12px; top: 10px; font-size: 12px; color: #dde; text-align: right; }
+    .hud-bottom { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .hud .cls { font-size: 13px; color: #cde; }
+    .hud .hotbar { display: flex; gap: 4px; }
+    .hud .slot { position: relative; width: 44px; height: 44px; background: rgba(0,0,0,.55); border: 2px solid #556; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+    .hud .slot.sel { border-color: #ffd54a; background: rgba(60,50,0,.6); }
+    .hud .slot img { width: 32px; height: 32px; image-rendering: pixelated; }
+    .hud .slot .num { position: absolute; left: 3px; top: 1px; font-size: 10px; color: #aab; }
+    .hud .slot .cnt { position: absolute; right: 3px; bottom: 1px; font-size: 11px; color: #fff; }
+    .hud .slot .cost { position: absolute; left: 0; right: 0; bottom: -14px; font-size: 9px; text-align: center; color: #cfd; white-space: nowrap; }
+    .hud .slot .cost.no { color: #f88; }
+    .hud-status { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: #bcd; }
+    .hud-status .warn { color: #ffb347; }
+    .hud-feed { position: absolute; right: 12px; top: 110px; font-size: 13px; text-align: right; }
+    .hud-feed div { background: rgba(0,0,0,.45); padding: 2px 8px; border-radius: 4px; margin-top: 3px; display: inline-block; }
+    .hud-board { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,.75); padding: 14px 18px; border-radius: 10px; min-width: 420px; }
+    .hud-board .teams { display: flex; gap: 20px; }
+    .hud-board table { border-collapse: collapse; flex: 1; }
+    .hud-board th, .hud-board td { padding: 3px 8px; text-align: left; font-size: 13px; }
+    .hud-board th { color: #aab; font-weight: normal; border-bottom: 1px solid #445; }
+    .hud-board tr.me td { color: #ffd54a; }
+    .hud-board .small { margin-top: 8px; font-size: 11px; color: #99a; text-align: center; }
+    .hud-minimap { position: absolute; right: 12px; bottom: 12px; width: 224px; height: 96px; image-rendering: pixelated; background: rgba(0,0,0,.35); border: 1px solid #556; border-radius: 4px; }
+    .hud-chat { position: absolute; left: 12px; bottom: 60px; font-size: 13px; max-width: 45%; }
+    .hud-chat div { background: rgba(0,0,0,.4); padding: 2px 8px; border-radius: 4px; margin-top: 2px; display: table; }
+    .hud-chatbox { position: absolute; left: 12px; bottom: 36px; width: 40%; }
+    .hud-chatbox input { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid #667; background: rgba(0,0,0,.7); color: #fff; font-size: 14px; }
+    .hud-settings { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,.8); padding: 16px 22px; border-radius: 10px; min-width: 260px; }
+    .hud-settings h3 { margin: 0 0 10px; }
+    .hud-settings label { display: block; margin: 8px 0; font-size: 14px; }
+    .hud-settings input[type=range] { width: 140px; vertical-align: middle; }
+    .hud-settings select { background: #223; color: #fff; border: 1px solid #556; padding: 2px 6px; }
+    .hud-settings .set-lang-l { margin: 10px 0 4px; font-size: 14px; }
+    .hud-settings .small { margin-top: 8px; font-size: 11px; color: #99a; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

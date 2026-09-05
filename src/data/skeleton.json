@@ -1,0 +1,19 @@
+{
+  "_comment": "휴머노이드 본 계층. 좌표는 부모 기준 px(캐릭터 오른쪽을 바라볼 때). rot 는 기본 회전(도). 본의 '길이 방향'은 +y(아래)이며 파츠는 본 원점에 앵커된다. root 는 발 위치.",
+  "bones": [
+    { "name": "root",     "parent": null,      "x": 0,    "y": 0 },
+    { "name": "hip",      "parent": "root",    "x": 0,    "y": -7 },
+    { "name": "legB",     "parent": "hip",     "x": -0.5, "y": 0,    "length": 3.5 },
+    { "name": "shinB",    "parent": "legB",    "x": 0,    "y": 3.5,  "length": 3.5 },
+    { "name": "legF",     "parent": "hip",     "x": 0.5,  "y": 0,    "length": 3.5 },
+    { "name": "shinF",    "parent": "legF",    "x": 0,    "y": 3.5,  "length": 3.5 },
+    { "name": "torso",    "parent": "hip",     "x": 0,    "y": 0,    "length": -5 },
+    { "name": "head",     "parent": "torso",   "x": 0,    "y": -5 },
+    { "name": "armB",     "parent": "torso",   "x": -1,   "y": -4.5, "length": 3 },
+    { "name": "forearmB", "parent": "armB",    "x": 0,    "y": 3,    "length": 3 },
+    { "name": "armF",     "parent": "torso",   "x": 1,    "y": -4.5, "length": 3 },
+    { "name": "forearmF", "parent": "armF",    "x": 0,    "y": 3,    "length": 3 },
+    { "name": "hand",     "parent": "forearmF","x": 0,    "y": 3 },
+    { "name": "back",     "parent": "torso",   "x": -1.5, "y": -3 }
+  ]
+}
